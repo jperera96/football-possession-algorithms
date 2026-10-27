@@ -1,0 +1,29 @@
+# Pre-commit configuration for More Than A Hack 2027
+# Install with: pip install pre-commit && pre-commit install
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=5000']
+      - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      - id: strategy-synthetic-tests
+        name: Strategy Synthetic Unit Tests
+        entry: python run_experiment.py --test-all
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: validate-baseline-contract
+        name: Validate Baseline Submission Contract
+        entry: python evaluation/validate_submission.py evaluation/results/baseline_smooth50.csv
+        language: system
+        pass_filenames: false
+        always_run: true

@@ -1,0 +1,64 @@
+name: CI / Possession Pipeline Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-and-validate:
+    name: Test & Validate (${{ matrix.os }} - Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ensure No Gated Data Files in Git
+        shell: bash
+        run: |
+          # Verify that data/ only contains README.md (no gated match assets committed)
+          if [ -d "data" ]; then
+            UNWANTED=$(find data -type f ! -name "README.md")
+            if [ -n "$UNWANTED" ]; then
+              echo "ERROR: Found non-README files in data directory that should not be tracked:"
+              echo "$UNWANTED"
+              exit 1
+            fi
+          fi
+          echo "Data directory is clean."
+
+      - name: Run Strategy Synthetic Unit Tests
+        run: |
+          python run_experiment.py --test-all
+
+      - name: Validate Baseline Submission Formats
+        run: |
+          python evaluation/validate_submission.py evaluation/results/baseline_smooth50.csv
+          python evaluation/validate_submission.py evaluation/results/baseline_smooth25.csv
+          python evaluation/validate_submission.py evaluation/results/baseline_smooth125.csv
+          python evaluation/validate_submission.py evaluation/results/baseline_raw.csv
+
+      - name: Run Scorer against Public Ground Truth
+        run: |
+          python evaluation/run_evaluation.py
+
+      - name: Check Data Status Helper
+        run: |
+          python tools/data_status.py
