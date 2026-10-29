@@ -26,7 +26,12 @@ sys.path.insert(0, os.path.join(ROOT, "evaluation"))
 
 from games import GAME, GAMES, SOURCES, asset_paths, half_video_blocks  # noqa: E402
 import possession_metrics as pm  # noqa: E402
-from pipeline.dead_ball import init_frame_mask, parse_smart_tagging_stoppages, apply_pitch_boundary_dead_balls
+from pipeline.dead_ball import (
+    init_frame_mask,
+    parse_smart_tagging_stoppages,
+    apply_pitch_boundary_dead_balls,
+    bridge_out_of_bounds_to_set_pieces,
+)
 from pipeline.ball_reconstruction import reconstruct_ball_trajectory
 from pipeline.evidence import compute_frame_control_evidence, PITCH_LENGTH_M, PITCH_WIDTH_M
 from pipeline.state_machine import FootballStateMachine
@@ -77,7 +82,9 @@ def run_pipeline(
                     labels_mask[f] = "D"
 
             # Register restart team if known
-            if s["team"].lower() in ("barcelona", "h"):
+            if s.get("restart_team") in ("H", "A"):
+                restarts[s["restart_frame"]] = s["restart_team"]
+            elif s["team"].lower() in ("barcelona", "h"):
                 restarts[s["restart_frame"]] = "H"
             elif s["team"].lower() in ("atletic club", "athletic club", "a"):
                 restarts[s["restart_frame"]] = "A"
@@ -129,7 +136,8 @@ def run_pipeline(
     # 4. Ball Reconstruction for short gaps
     print("Step 4: Reconstructing missing ball trajectories...")
     interp_ball, is_imputed = reconstruct_ball_trajectory(ball_coords, max_gap_frames=max_interp_gap)
-    apply_pitch_boundary_dead_balls(labels_mask, interp_ball)
+    apply_pitch_boundary_dead_balls(labels_mask, interp_ball, tolerance=0.005)
+    bridge_out_of_bounds_to_set_pieces(labels_mask, stoppages)
 
     # 5. Extract frame-level control signals
     print("Step 5: Extracting control signals...")
