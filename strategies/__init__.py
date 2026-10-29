@@ -8,6 +8,9 @@ from strategies.base import BaseStrategy
 from strategies.baseline_window import BaselineWindowStrategy
 from strategies.fsm_lookahead import FSMLookaheadStrategy
 from strategies.fsm_ablation import FSMNoLookaheadStrategy, FSMNoDeadBallStrategy
+from strategies.fsm_advanced import FSMAdvancedStrategy
+from strategies.fsm_hysteresis import FSMHysteresisStrategy
+from strategies.football_engine import FootballEngineStrategy
 from strategies.hmm_viterbi import HMMViterbiStrategy
 
 STRATEGY_REGISTRY: Dict[str, Type[BaseStrategy]] = {
@@ -16,6 +19,9 @@ STRATEGY_REGISTRY: Dict[str, Type[BaseStrategy]] = {
     "baseline_smooth125": lambda **kw: BaselineWindowStrategy(window_half_width=125, **kw),
     "baseline_raw": lambda **kw: BaselineWindowStrategy(window_half_width=0, **kw),
     "fsm_lookahead": FSMLookaheadStrategy,
+    "fsm_advanced": FSMAdvancedStrategy,
+    "fsm_hysteresis": FSMHysteresisStrategy,
+    "football_engine": FootballEngineStrategy,
     "ablation_no_lookahead": FSMNoLookaheadStrategy,
     "ablation_no_deadball": FSMNoDeadBallStrategy,
     "hmm_viterbi": HMMViterbiStrategy,
