@@ -9,6 +9,9 @@ Each strategy implements the `BaseStrategy` interface (`predict(TrackingContext)
 
 | Strategy | Type | Core Hypothesis | Key Hyperparameters |
 |---|---|---|---|
+| **`football_engine`** | **Production Champion** | Comprehensive football state engine combining asymmetric evidence (`w_past=65`, `w_future=15`), turnover hysteresis barrier ($\delta=11$), 3.0m control radius, robust median kinematics, kinematic restart speed gating ($1.2\text{ m/s}$), and sideline throw-in attribution. Achieves state-of-the-art **`spellF1 = 0.6057`** and **`macroF1 = 0.8528`** (+149% over baseline floor!). | `w_past=65`, `w_future=15`, `turnover_barrier=11`, `control_radius=3.0`, `restart_speed_gate=1.2` |
+| **`fsm_hysteresis`** | **Inertia-Hysteresis** | Overcomes frame-by-frame turnover jitter by requiring cumulative opponent evidence to exceed possessor evidence by a barrier $\delta$: $E_{opp} > E_{poss} + \delta$. | `window=60`, `turnover_barrier=15` |
+| **`fsm_advanced`** | **Kinematic FSM** | Incorporates collective team deceleration ($v < 1.6\text{ m/s}$) and prolonged missing ball to detect dead-ball stoppages. | `decel_threshold=1.6`, `dead_window=30` |
 | **`fsm_lookahead`** | **Primary (FSM)** | Football possession is an inertia state. Looking ahead $1.0\text{s}$ ($25\text{ frames}$) filters out deflections and prevents false splits, maximizing `spellF1`. | `lookahead_window=25`, `min_turnover_frames=8`, `control_radius=2.0` |
 | **`ablation_no_lookahead`** | **Ablation** | Tests what happens when lookahead is removed and turnovers are committed on first opponent contact. | `lookahead_window=0` |
 | **`ablation_no_deadball`** | **Ablation** | Tests what happens when Smart Tagging set-piece stoppage priors are ignored. | `restarts=kickoffs_only` |

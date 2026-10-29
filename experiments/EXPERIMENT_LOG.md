@@ -1,0 +1,21 @@
+# Strategy Experiment Log & Benchmark Board
+
+| Timestamp | Strategy / File | spellF1 | macroF1 | Poss | Dur(s) | Frag | Notes |
+|---|---|---|---|---|---|---|---|
+| 2026-10-28 15:58:30 | `fsm_lookahead.csv` | **0.2455** | 0.6697 | 27 | 9.2 | 1.38 | First run of FSM with lookahead on real tracking data |
+| 2026-10-28 15:58:46 | `baseline_smooth50.csv` | **0.2900** | 0.6708 | 23 | 9.9 | 1.33 | Full benchmark suite across all strategies |
+| 2026-10-28 15:58:48 | `baseline_smooth25.csv` | **0.2531** | 0.6464 | 32 | 7.1 | 1.76 | Full benchmark suite across all strategies |
+| 2026-10-28 15:58:50 | `baseline_smooth125.csv` | **0.3733** | 0.6959 | 13 | 17.2 | 0.86 | Full benchmark suite across all strategies |
+| 2026-10-28 15:58:52 | `baseline_raw.csv` | **0.0328** | 0.6169 | 117 | 2.0 | 5.86 | Full benchmark suite across all strategies |
+| 2026-10-28 15:58:56 | `fsm_lookahead.csv` | **0.2455** | 0.6697 | 27 | 9.2 | 1.38 | Full benchmark suite across all strategies |
+| 2026-10-28 15:59:00 | `ablation_no_lookahead.csv` | **0.1524** | 0.6739 | 46 | 5.4 | 2.29 | Full benchmark suite across all strategies |
+| 2026-10-28 15:59:04 | `ablation_no_deadball.csv` | **0.2455** | 0.6697 | 27 | 9.2 | 1.38 | Full benchmark suite across all strategies |
+| 2026-10-28 15:59:07 | `hmm_viterbi.csv` | **0.0083** | 0.5554 | 79 | 1.9 | 7.24 | Full benchmark suite across all strategies |
+| 2026-10-28 16:07:27 | `fsm_advanced.csv` | **0.2100** | 0.6559 | 23 | 10.0 | 1.33 | FSM Advanced: 50f lookahead, dead-ball absence detector, micro-spell merging |
+| 2026-10-28 16:08:45 | `fsm_hysteresis.csv` | **0.3053** | 0.6686 | 21 | 11.4 | 1.24 | Inertia-Hysteresis State Machine (window 40, barrier 15) |
+| 2026-10-28 16:24:45 | `football_engine.csv` | **0.2769** | 0.6774 | 22 | 10.8 | 1.29 | FootballEngine: W55, Barrier12, DW40 with kickoff anchors |
+| 2026-10-28 16:25:24 | `football_engine.csv` | **0.3294** | 0.6886 | 17 | 14.0 | 1.05 | FootballEngine default config (W60, b12, dw35) -> 17 possessions, 14.0s dur, 0.3294 spellF1 |
+| 2026-10-28 16:51:44 | `football_engine.csv` | **0.4571** | 0.7383 | 18 | 14.6 | 1.1 | FootballEngine with restart anchoring and out-of-bounds bridging |
+| 2026-10-29 19:46:52 | `football_engine.csv` | **0.5333** | 0.7820 | 19 | 14.1 | 1.19 | FootballEngine with Control Radius (3m) and Kinematic Aerial Stoppage Gating |
+| 2026-10-29 20:18:04 | `football_engine.csv` | **0.6057** | 0.8528 | 18 | 13.7 | 1.19 |  |
+| 2026-10-29 20:41:36 | `football_engine.csv` | **0.6057** | 0.8539 | 18 | 13.7 | 1.19 |  |
