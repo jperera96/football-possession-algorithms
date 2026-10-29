@@ -25,18 +25,57 @@ from games import GAME, GAMES, asset_paths, half_video_blocks  # noqa: E402
 import possession_metrics as pm  # noqa: E402
 from strategies import STRATEGY_REGISTRY, get_strategy, list_strategies  # noqa: E402
 from strategies.base import TrackingContext  # noqa: E402
-from pipeline.dead_ball import init_frame_mask, parse_smart_tagging_stoppages, apply_pitch_boundary_dead_balls  # noqa: E402
+from pipeline.dead_ball import (
+    init_frame_mask,
+    parse_smart_tagging_stoppages,
+    apply_pitch_boundary_dead_balls,
+    bridge_out_of_bounds_to_set_pieces,
+    resolve_throw_in_restart_teams,
+)  # noqa: E402
 from pipeline.runner import load_player_teams_from_meta  # noqa: E402
 from tools.agent_eval import score_file  # noqa: E402
 
 
-def build_match_context():
-    """Build TrackingContext from downloaded assets."""
+def build_match_context(use_cache=True):
+    """Build TrackingContext from downloaded assets (with optional fast npz cache)."""
     paths = asset_paths(source="tactical")
     n_frames = GAMES[GAME]["n_video_frames"]
 
     if not os.path.isfile(paths["atd_raw"]) or not os.path.isfile(paths["atd_meta"]):
         return None
+
+    cache_file = os.path.join(HERE, "data", "cache", "tracking_context.npz")
+    if use_cache and os.path.isfile(cache_file):
+        cached = np.load(cache_file)
+        ball_coords = cached["ball_coords"]
+        player_coords = cached["player_coords"]
+        player_teams = cached["player_teams"]
+        dead_mask = cached["dead_ball_mask"]
+
+        restarts = {11185: "A", 113742: "H"}
+        stoppages = []
+        if os.path.isfile(paths["smart_tagging"]):
+            stoppages = parse_smart_tagging_stoppages(paths["smart_tagging"])
+            for s in stoppages:
+                if s.get("restart_team") in ("H", "A"):
+                    restarts[s["restart_frame"]] = s["restart_team"]
+                elif s["team"].lower() in ("barcelona", "h"):
+                    restarts[s["restart_frame"]] = "H"
+                elif s["team"].lower() in ("atletic club", "athletic club", "a"):
+                    restarts[s["restart_frame"]] = "A"
+
+            throw_in_restarts = resolve_throw_in_restart_teams(stoppages, player_coords, player_teams, n_frames)
+            restarts.update(throw_in_restarts)
+
+        return TrackingContext(
+            n_frames=n_frames,
+            ball_coords=ball_coords,
+            player_coords=player_coords,
+            player_teams=player_teams,
+            dead_ball_mask=dead_mask,
+            restarts=restarts,
+            smart_tagging_stoppages=stoppages,
+        )
 
     # 1. Base boundaries
     dead_mask = init_frame_mask(n_frames)
@@ -52,7 +91,9 @@ def build_match_context():
             for f in range(d_start, d_end):
                 if dead_mask[f] == "":
                     dead_mask[f] = "D"
-            if s["team"].lower() in ("barcelona", "h"):
+            if s.get("restart_team") in ("H", "A"):
+                restarts[s["restart_frame"]] = s["restart_team"]
+            elif s["team"].lower() in ("barcelona", "h"):
                 restarts[s["restart_frame"]] = "H"
             elif s["team"].lower() in ("atletic club", "athletic club", "a"):
                 restarts[s["restart_frame"]] = "A"
@@ -91,7 +132,12 @@ def build_match_context():
                     ball_coords[v_frame, 0] = float(vals[0])
                     ball_coords[v_frame, 1] = float(vals[1])
 
-    apply_pitch_boundary_dead_balls(dead_mask, ball_coords)
+    apply_pitch_boundary_dead_balls(dead_mask, ball_coords, tolerance=0.005)
+    bridge_out_of_bounds_to_set_pieces(dead_mask, stoppages)
+
+    # Resolve throw-in restart teams from sideline positioning
+    throw_in_restarts = resolve_throw_in_restart_teams(stoppages, player_coords, player_teams, n_frames)
+    restarts.update(throw_in_restarts)
 
     return TrackingContext(
         n_frames=n_frames,
