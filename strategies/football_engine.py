@@ -41,6 +41,8 @@ class FootballEngineStrategy(BaseStrategy):
         min_unverified_dead: int = 120,
         enable_clearance_splits: bool = True,
         enable_kickoff_arrival: bool = True,
+        min_flicker_len: int = 15,
+        min_dead_flicker_len: int = 40,
         name: str = "football_engine",
     ):
         w_past = w_past if w_past is not None else window
@@ -78,6 +80,8 @@ class FootballEngineStrategy(BaseStrategy):
         self.min_unverified_dead = min_unverified_dead
         self.enable_clearance_splits = enable_clearance_splits
         self.enable_kickoff_arrival = enable_kickoff_arrival
+        self.min_flicker_len = min_flicker_len
+        self.min_dead_flicker_len = min_dead_flicker_len
 
     @staticmethod
     def _resolve_slot_team(slot: int, px: float, frame_idx: int, default_team: int, n_slots: int) -> int:
@@ -1157,6 +1161,50 @@ class FootballEngineStrategy(BaseStrategy):
                     res[t_stop:t_restart] = "D"
                     # Apply restart kick
                     res[t_restart:min(n_frames, t_restart + 25)] = team
+            output = res
+
+        # 12. Physical Possession Continuity & Micro-Flicker Filter:
+        # (a) No team establishes controlled possession for < min_flicker_len (15f / 0.6s):
+        # A momentary opponent blip surrounded by the same team (H -> A -> H or A -> H -> A)
+        # represents a brief tackle duel or ball deflection, not a genuine possession turnover.
+        # (b) No dead-ball stoppage lasts < min_dead_flicker_len (40f / 1.6s) during live play:
+        # A momentary dead-ball gap surrounded by the same team (H -> D -> H or A -> D -> A)
+        # with no XML stoppage tag represents an in-flight pass or player dribble, not a referee stoppage.
+        if n_frames > 100:
+            res = output.copy()
+            i = 0
+            while i < n_frames:
+                if res[i] != "D":
+                    i += 1
+                    continue
+                start = i
+                while i < n_frames and res[i] == "D":
+                    i += 1
+                end = i
+                dur = end - start
+                if dur < (self.min_dead_flicker_len or 40):
+                    prev_val = res[start - 1] if start > 0 else None
+                    next_val = res[end] if end < n_frames else None
+                    if prev_val == next_val and prev_val in ("H", "A") and np.all(dead_mask[start:end] == ""):
+                        res[start:end] = prev_val
+
+            i = 0
+            while i < n_frames:
+                if res[i] not in ("H", "A"):
+                    i += 1
+                    continue
+                start = i
+                val = res[i]
+                while i < n_frames and res[i] == val:
+                    i += 1
+                end = i
+                dur = end - start
+                if dur < (self.min_flicker_len or 15):
+                    prev_val = res[start - 1] if start > 0 else None
+                    next_val = res[end] if end < n_frames else None
+                    opp = "A" if val == "H" else "H"
+                    if prev_val == opp and next_val == opp:
+                        res[start:end] = opp
             output = res
 
         # Re-enforce deterministic boundaries
