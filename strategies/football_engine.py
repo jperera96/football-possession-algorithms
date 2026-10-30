@@ -38,6 +38,7 @@ class FootballEngineStrategy(BaseStrategy):
         w_future: int = 15,
         deflection_min_len: int = 55,
         max_pre_dead: int = 90,
+        min_unverified_dead: int = 120,
         enable_clearance_splits: bool = True,
         enable_kickoff_arrival: bool = True,
         name: str = "football_engine",
@@ -45,7 +46,7 @@ class FootballEngineStrategy(BaseStrategy):
         w_past = w_past if w_past is not None else window
         super().__init__(
             name=name,
-            description="Production Football Possession Engine with inertia, hysteresis, control radius, kinematic stoppage gating, dynamic ball flight gating, deflection filtering, and directional clearance detection",
+            description="Production Football Possession Engine with GK slot disambiguation, set-piece stationary ball gating, inertia hysteresis, 4-way symmetric clearances with velocity-apex extension, kinematic pre-dead split, and occlusion bridging",
             window=window,
             turnover_barrier=turnover_barrier,
             dead_window=dead_window,
@@ -58,6 +59,7 @@ class FootballEngineStrategy(BaseStrategy):
             w_future=w_future,
             deflection_min_len=deflection_min_len,
             max_pre_dead=max_pre_dead,
+            min_unverified_dead=min_unverified_dead,
             enable_clearance_splits=enable_clearance_splits,
             enable_kickoff_arrival=enable_kickoff_arrival,
         )
@@ -73,8 +75,26 @@ class FootballEngineStrategy(BaseStrategy):
         self.flight_radius = flight_radius
         self.deflection_min_len = deflection_min_len
         self.max_pre_dead = max_pre_dead
+        self.min_unverified_dead = min_unverified_dead
         self.enable_clearance_splits = enable_clearance_splits
         self.enable_kickoff_arrival = enable_kickoff_arrival
+
+    @staticmethod
+    def _resolve_slot_team(slot: int, px: float, frame_idx: int, default_team: int, n_slots: int) -> int:
+        """Disambiguate Goalkeeper track slots (slots 23 and 45 in 46-slot ATD metadata).
+
+        In optical tracking, goalkeepers wear contrasting kits and frequently swap
+        between slot 23 (Home GK) and slot 45 (Away GK). Resolve goalkeeper team
+        identity deterministically from pitch half and match half:
+        - 1st Half (<= 90651): Home defends Left (x < 52.5m), Away defends Right (x > 52.5m).
+        - 2nd Half (>= 110808): Home defends Right (x > 52.5m), Away defends Left (x < 52.5m).
+        """
+        if n_slots >= 46 and slot in (23, 45):
+            if frame_idx <= 90651:
+                return 0 if px < 52.5 else 1
+            elif frame_idx >= 110808:
+                return 0 if px > 52.5 else 1
+        return int(default_team)
 
     def predict(self, ctx: TrackingContext) -> np.ndarray:
         n_frames = ctx.n_frames
@@ -83,6 +103,7 @@ class FootballEngineStrategy(BaseStrategy):
 
         # 0. Compute smoothed collective player median speed for kinematic stoppage confirmation
         players_m = ctx.player_coords * scale
+        n_slots = players_m.shape[1] if players_m.ndim == 3 else 0
         if n_frames > 1:
             diffs = players_m[1:] - players_m[:-1]
             v_players = np.sqrt(np.sum(diffs**2, axis=-1)) * 25.0
@@ -101,13 +122,70 @@ class FootballEngineStrategy(BaseStrategy):
             b_speed[1:] = np.sqrt(np.sum(b_diffs**2, axis=-1)) * 25.0
             b_speed[np.isnan(b_speed)] = 0.0
 
+        # 0c. Refine Smart Tagging stoppages & restarts:
+        # - For GOALS tags: preserve live attacking build-up before the post-goal celebration NaN stretch.
+        # - For SET PIECES tags: hold 'D' while the ball is stationary (< 4.0 m/s) prior to kick execution.
+        restarts = dict(ctx.restarts) if ctx.restarts else {}
+        dead_mask = ctx.dead_ball_mask.copy()
+        if ctx.smart_tagging_stoppages:
+            for s in ctx.smart_tagging_stoppages:
+                if s.get("code") == "goals":
+                    gs, ge = s["dead_start"], s["dead_end"]
+                    best_len = 0
+                    celeb_start = gs
+                    cur_start = gs
+                    cur_len = 0
+                    for f in range(gs, min(n_frames, ge)):
+                        if np.isnan(ball_m[f, 0]):
+                            if cur_len == 0:
+                                cur_start = f
+                            cur_len += 1
+                            if cur_len > best_len:
+                                best_len = cur_len
+                                celeb_start = cur_start
+                        else:
+                            cur_len = 0
+                    if celeb_start > gs:
+                        dead_mask[gs:celeb_start] = ""
+                        sub_coords = ctx.ball_coords[gs:celeb_start]
+                        valid_c = ~np.isnan(sub_coords[:, 0]) & ~np.isnan(sub_coords[:, 1])
+                        oob = (
+                            (sub_coords[:, 0] < -0.005)
+                            | (sub_coords[:, 0] > 1.005)
+                            | (sub_coords[:, 1] < -0.005)
+                            | (sub_coords[:, 1] > 1.005)
+                        )
+                        dead_mask[gs:celeb_start][valid_c & oob] = "D"
+                        for s2 in ctx.smart_tagging_stoppages:
+                            if s2.get("code") == "set pieces":
+                                ds2 = max(gs, s2["dead_start"])
+                                de2 = min(celeb_start, s2["dead_end"])
+                                if ds2 < de2:
+                                    dead_mask[ds2:de2] = "D"
+
+            for s in ctx.smart_tagging_stoppages:
+                if s.get("code") == "set pieces":
+                    rf = s["restart_frame"]
+                    rt = restarts.get(rf)
+                    if 0 < rf < n_frames and dead_mask[rf - 1] == "D":
+                        kick_f = rf
+                        for scan_f in range(rf, min(n_frames, rf + 120)):
+                            if b_speed[scan_f] >= 4.0:
+                                kick_f = scan_f
+                                break
+                        if kick_f > rf:
+                            dead_mask[rf:kick_f] = "D"
+                            if rt is not None:
+                                del restarts[rf]
+                                restarts[kick_f] = rt
+
         # 1. Compute frame-level nearest player codes within control radius (-1: None/Flight, 0: H, 1: A)
         raw_codes = np.full(n_frames, -1, dtype=np.int8)
         r_sq_base = (self.control_radius**2) if self.control_radius is not None else np.inf
         r_sq_flight = (self.flight_radius**2) if self.flight_radius is not None else r_sq_base
 
         for f in range(n_frames):
-            if ctx.dead_ball_mask[f] in ("X", "D"):
+            if dead_mask[f] in ("X", "D"):
                 continue
 
             ball = ctx.ball_coords[f]
@@ -127,7 +205,10 @@ class FootballEngineStrategy(BaseStrategy):
             # Dynamic control radius: High-speed balls (> flight_speed) require tight proximity (actual touch)
             r_sq = r_sq_flight if (self.flight_speed is not None and b_speed[f] > self.flight_speed) else r_sq_base
             if sq_dists[min_idx] <= r_sq:
-                raw_codes[f] = ctx.player_teams[valid_p][min_idx]
+                slot = int(np.flatnonzero(valid_p)[min_idx])
+                raw_codes[f] = self._resolve_slot_team(
+                    slot, float(p_m[slot, 0]), f, int(ctx.player_teams[slot]), n_slots
+                )
 
         # 2. Cumulative observation evidence
         home_cum = np.concatenate(([0], np.cumsum(raw_codes == 0)))
@@ -150,20 +231,20 @@ class FootballEngineStrategy(BaseStrategy):
 
         for t in range(n_frames):
             # Deterministic boundaries
-            if ctx.dead_ball_mask[t] == "X":
+            if dead_mask[t] == "X":
                 output[t] = "X"
                 current_state = None
                 pending_restart_team = None
                 continue
 
-            if ctx.dead_ball_mask[t] == "D":
+            if dead_mask[t] == "D":
                 output[t] = "D"
                 current_state = "D"
                 continue
 
             # Register upcoming/immediate restart anchor
-            if t in ctx.restarts:
-                pending_restart_team = ctx.restarts[t]
+            if t in restarts:
+                pending_restart_team = restarts[t]
 
             # Prolonged absence of ball: Stoppage ONLY if players decelerated below walking threshold
             if tot_seen[t] == 0:
@@ -209,14 +290,15 @@ class FootballEngineStrategy(BaseStrategy):
             output[t] = current_state
 
         # Enforce deterministic boundaries
-        output[ctx.dead_ball_mask == "X"] = "X"
-        output[ctx.dead_ball_mask == "D"] = "D"
+        output[dead_mask == "X"] = "X"
+        output[dead_mask == "D"] = "D"
 
         # 4. Kickoff long-ball flight & defensive quarter landing
+        # Both H1 (Barca defends Left) and H2 (Athletic defends Left) have the non-kicking team defending (0.0, 26.25)
         if self.enable_kickoff_arrival and n_frames > 20000:
             for k_frame, kicking_team in [(11185, "A"), (113742, "H")]:
                 def_team = "H" if kicking_team == "A" else "A"
-                def_bounds = (0.0, 26.25) if def_team == "H" else (78.75, 105.0)
+                def_bounds = (0.0, 26.25)
                 for f in range(k_frame + 20, min(n_frames, k_frame + 400)):
                     if not np.isnan(ball_m[f, 0]):
                         bx = ball_m[f, 0]
@@ -251,8 +333,7 @@ class FootballEngineStrategy(BaseStrategy):
                         res[start:end] = prev_val
             output = res
 
-        # 6. Kinematic Directional Defensive Clearance Rule (runs after deflection filter
-        # so genuine clearance kicks intentionally split opponent possession spells)
+        # 6. Full 4-Way Symmetric Kinematic Clearances with Velocity-Apex Extension & Inertia-Lag Bridging
         if self.enable_clearance_splits and n_frames > 100 and ctx.player_teams is not None:
             v_b = np.full((n_frames, 2), np.nan, dtype=np.float32)
             valid_b = ~np.isnan(ball_m[:, 0])
@@ -268,14 +349,21 @@ class FootballEngineStrategy(BaseStrategy):
             min_dist_h = np.full(n_frames, 99.0, dtype=np.float32)
             min_dist_a = np.full(n_frames, 99.0, dtype=np.float32)
             for f in range(n_frames):
-                if ctx.dead_ball_mask[f] in ("X", "D") or not valid_b[f]:
+                if dead_mask[f] in ("X", "D") or not valid_b[f]:
                     continue
                 p = players_m[f]
                 v = ~np.isnan(p[:, 0])
                 if not np.any(v):
                     continue
                 dists = np.sqrt(np.sum((p[v] - ball_m[f]) ** 2, axis=1))
-                tms = ctx.player_teams[v]
+                tms = ctx.player_teams[v].copy()
+                if n_slots >= 46:
+                    v_slots = np.flatnonzero(v)
+                    for idx_s, s_id in enumerate(v_slots):
+                        if s_id in (23, 45):
+                            tms[idx_s] = self._resolve_slot_team(
+                                int(s_id), float(p[s_id, 0]), f, int(tms[idx_s]), n_slots
+                            )
                 h_dists = dists[tms == 0]
                 a_dists = dists[tms == 1]
                 if len(h_dists) > 0:
@@ -285,43 +373,50 @@ class FootballEngineStrategy(BaseStrategy):
 
             clears = []
             for t in range(10, n_frames - 25):
-                if ctx.dead_ball_mask[t] in ("X", "D") or not valid_b[t]:
+                if dead_mask[t] in ("X", "D") or not valid_b[t]:
                     continue
                 bx = ball_m[t, 0]
                 vx = v_b[t, 0]
                 cur = output[t]
 
-                # H1: Barca clearance against Away possession in Barca defensive half (x < 52.5, vx > 1.0)
-                if t < 90651 and cur == "A" and bx < 52.5 and vx > 1.0:
-                    if (
-                        min_dist_h[t] <= 0.85
-                        and min_dist_a[t] >= 1.50
-                        and b_speed[t] >= 6.0
-                        and surge_8f[t] >= 3.0
-                    ):
-                        clears.append((t, "H"))
-                # H2: Athletic clearance against Home possession in Athletic defensive half (x > 52.5, vx < -1.0)
-                elif t >= 110808 and cur == "H" and bx > 52.5 and vx < -1.0:
-                    if (
-                        min_dist_a[t] <= 0.85
-                        and min_dist_h[t] >= 1.50
-                        and b_speed[t] >= 6.0
-                        and surge_8f[t] >= 3.0
-                    ):
-                        clears.append((t, "A"))
+                if t < 90651:
+                    # H1: Home defends Left (bx < 52.5, clears vx > 1.0); Away defends Right (bx > 52.5, clears vx < -1.0)
+                    if cur == "A" and bx < 52.5 and vx > 1.0:
+                        if min_dist_h[t] <= 0.85 and min_dist_a[t] >= 1.50 and b_speed[t] >= 6.0 and surge_8f[t] >= 3.0:
+                            clears.append((t, "H", 1))
+                    elif cur == "H" and bx > 52.5 and vx < -1.0:
+                        if min_dist_a[t] <= 0.85 and min_dist_h[t] >= 1.50 and b_speed[t] >= 6.0 and surge_8f[t] >= 3.0:
+                            clears.append((t, "A", -1))
+                elif t >= 110808:
+                    # H2: Home defends Right (bx > 52.5, clears vx < -1.0); Away defends Left (bx < 52.5, clears vx > 1.0)
+                    if cur == "A" and bx > 52.5 and vx < -1.0:
+                        if min_dist_h[t] <= 0.85 and min_dist_a[t] >= 1.50 and b_speed[t] >= 6.0 and surge_8f[t] >= 3.0:
+                            clears.append((t, "H", -1))
+                    elif cur == "H" and bx < 52.5 and vx > 1.0:
+                        if min_dist_a[t] <= 0.85 and min_dist_h[t] >= 1.50 and b_speed[t] >= 6.0 and surge_8f[t] >= 3.0:
+                            clears.append((t, "A", 1))
 
-            for c_frame, c_team in clears:
+            for c_frame, c_team, c_dir in clears:
                 k_start = c_frame
                 dist_arr = min_dist_h if c_team == "H" else min_dist_a
-                while k_start > 0 and dist_arr[k_start] <= 1.2:
+                while k_start > 0 and (
+                    dist_arr[k_start] <= 1.2 or (dist_arr[k_start] <= 2.6 and v_b[k_start, 0] * c_dir > 0)
+                ):
                     k_start -= 1
                 k_end = c_frame
                 while k_end < n_frames and dist_arr[k_end] <= 1.2:
                     k_end += 1
                 output[k_start:k_end] = c_team
+                # If c_team transitions into sustained possession within deflection_min_len frames after k_end,
+                # bridge the cumulative-window inertia lag so the turnover begins cleanly at k_start.
+                look_end = min(n_frames, k_end + (self.deflection_min_len or 55))
+                c_indices = np.flatnonzero(output[k_end:look_end] == c_team)
+                if len(c_indices) > 0:
+                    next_c_start = k_end + int(c_indices[0])
+                    if np.all(dead_mask[k_end:next_c_start] == ""):
+                        output[k_end:next_c_start] = c_team
 
-        # 7. Pre-dead deflection filter: transient possession (< max_pre_dead) terminating into 'D'
-        # represents an uncompleted defensive deflection / block out of bounds. The ball becomes 'D'.
+        # 7. Kinematic Pre-Dead Tackle Split & Spurious D->H/A->D Stoppage Blip Filter
         if self.max_pre_dead is not None and self.max_pre_dead > 0:
             res = output.copy()
             n = len(res)
@@ -340,12 +435,37 @@ class FootballEngineStrategy(BaseStrategy):
                 prev_val = res[start - 1] if start > 0 else None
                 if next_val == "D" and prev_val in ("H", "A") and prev_val != val:
                     if dur < self.max_pre_dead:
+                        for f_idx in range(start, end):
+                            res[f_idx] = prev_val if smooth_speed[f_idx] >= 2.0 else "D"
+                elif next_val == "D" and prev_val == "D":
+                    if dur < self.max_pre_dead and not any(abs(start - rf) <= 25 for rf in restarts):
                         res[start:end] = "D"
             output = res
 
+        # 8. Unverified Camera-Occlusion 'D' Bridging (< min_unverified_dead frames where dead_mask is empty)
+        if self.min_unverified_dead is not None and self.min_unverified_dead > 0:
+            res = output.copy()
+            n = len(res)
+            i = 0
+            while i < n:
+                if res[i] != "D":
+                    i += 1
+                    continue
+                start = i
+                while i < n and res[i] == "D":
+                    i += 1
+                end = i
+                dur = end - start
+                prev_val = res[start - 1] if start > 0 else None
+                next_val = res[end] if end < n else None
+                if dur < self.min_unverified_dead and prev_val in ("H", "A") and next_val in ("H", "A"):
+                    if np.all(dead_mask[start:end] == ""):
+                        res[start:end] = next_val if dur < 50 else prev_val
+            output = res
+
         # Re-enforce deterministic boundaries
-        output[ctx.dead_ball_mask == "X"] = "X"
-        output[ctx.dead_ball_mask == "D"] = "D"
+        output[dead_mask == "X"] = "X"
+        output[dead_mask == "D"] = "D"
 
         return output
 

@@ -22,3 +22,4 @@
 | 2026-10-30 09:59:22 | `football_engine.csv` | **0.6424** | 0.8591 | 16 | 15.4 | 1.1 |  |
 | 2026-10-30 10:35:08 | `football_engine.csv` | **0.7097** | 0.8907 | 14 | 17.2 | 1.0 |  |
 | 2026-10-30 10:36:04 | `football_engine.csv` | **0.7636** | 0.8915 | 16 | 15.0 | 1.1 |  |
+| 2026-10-30 11:38:33 | `football_engine.csv` | **0.8667** | 0.9552 | 13 | 18.8 | 0.81 | v7 first-principles audit: GK slot disambiguation, set-piece stationary ball wait, GOALS build-up preservation, 4-way symmetric clearances with velocity-apex extension and inertia-lag bridging, kinematic pre-dead split, and unverified occlusion bridging |
