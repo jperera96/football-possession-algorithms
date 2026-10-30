@@ -108,6 +108,10 @@ class GoldenSpells(unittest.TestCase):
         seg = self.preds[24700:25100]
         self.assertTrue(np.all(seg == "H"), "Barcelona pass flying past an Athletic marker (no touch) must stay H")
 
+    def test_shot_saved_by_goalkeeper_then_held_26647(self):
+        self.assertTrue(np.all(self.preds[26640:26670] == "H"), "Barcelona shot in flight is not a dead ball")
+        self.assertTrue(np.all(self.preds[26690:26950] == "A"), "Athletic GK holding the saved ball is A, not D")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

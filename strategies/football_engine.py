@@ -796,12 +796,26 @@ class FootballEngineStrategy(BaseStrategy):
                                     d_att_pre = float(np.min(d_att[max(0, s_nan - 5) : s_nan]))
                                     d_def_post = float(np.min(d_def[e_nan : min(n_frames, e_nan + 10)]))
                                     d_att_post = float(np.min(d_att[e_nan : min(n_frames, e_nan + 10)]))
+                                    # (b) Shot into the box that the tracker loses on its way to the keeper:
+                                    # the ball was last seen inside the defending box travelling toward its
+                                    # goal line, no attacker was near it (not a dribble/touch), the NaN
+                                    # follows and the ball re-emerges uncontested with the defending team.
+                                    goal_dir = -1.0 if in_left_box else 1.0
+                                    k0 = max(0, s_nan - 6)
+                                    toward_goal = (ball_m[s_nan - 1, 0] - ball_m[k0, 0]) * goal_dir >= 1.0
+                                    shot_lost = (
+                                        toward_goal
+                                        and b_speed[s_nan - 1] >= 5.0
+                                        and d_att_pre >= 3.0
+                                        and d_def_post <= 1.65
+                                        and d_att_post >= 3.5
+                                    )
                                     if (
                                         d_def_pre <= 1.65
                                         and d_att_pre >= 3.0
                                         and d_def_post <= 1.65
                                         and d_att_post >= 3.5
-                                    ):
+                                    ) or shot_lost:
                                         catch_f = s_nan - 1
                                         while (
                                             catch_f > s_nan - 25
@@ -813,6 +827,21 @@ class FootballEngineStrategy(BaseStrategy):
                                         post_live_idx = np.flatnonzero(
                                             output[e_nan : min(n_frames, e_nan + 60)] == def_team
                                         )
+                                        att_team = "A" if def_team == "H" else "H"
+                                        if shot_lost and d_def_pre > 1.65:
+                                            # Frames of the shot itself (in play, mislabeled D by the
+                                            # kinematic pre-dead split) belong to the shooting team.
+                                            f_b = s_nan - 1
+                                            while (
+                                                f_b > 0
+                                                and output[f_b] == "D"
+                                                and dead_mask[f_b] == ""
+                                                and valid_b_arr[f_b]
+                                            ):
+                                                f_b -= 1
+                                            if output[f_b] == att_team and f_b < s_nan - 1:
+                                                output[f_b + 1 : s_nan] = att_team
+                                            catch_f = s_nan
                                         if output[catch_f - 1] in ("H", "A") and len(post_live_idx) > 0:
                                             end_bridge = e_nan + int(post_live_idx[0])
                                             output[catch_f:end_bridge] = def_team
