@@ -74,7 +74,7 @@ All models reside in [`strategies/`](strategies/) and inherit from `BaseStrategy
 ```
 strategies/
 ├── base.py                 # Abstract BaseStrategy & TrackingContext interface
-├── football_engine.py      # Production Champion: Inertia-Hysteresis + Kinematic Gating (spellF1=0.5333)
+├── football_engine.py      # Production Champion: Kinematic Flight, Clearance Splits & Stoppage Filtering (spellF1=0.7636, macroF1=0.8915)
 ├── fsm_hysteresis.py       # Inertia-Hysteresis turnover barrier benchmark
 ├── fsm_advanced.py         # Deceleration + missing ball kinematic state machine
 ├── fsm_lookahead.py        # Primary: Football State Machine with lookahead

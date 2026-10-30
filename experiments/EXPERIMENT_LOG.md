@@ -19,3 +19,6 @@
 | 2026-10-29 19:46:52 | `football_engine.csv` | **0.5333** | 0.7820 | 19 | 14.1 | 1.19 | FootballEngine with Control Radius (3m) and Kinematic Aerial Stoppage Gating |
 | 2026-10-29 20:18:04 | `football_engine.csv` | **0.6057** | 0.8528 | 18 | 13.7 | 1.19 |  |
 | 2026-10-29 20:41:36 | `football_engine.csv` | **0.6057** | 0.8539 | 18 | 13.7 | 1.19 |  |
+| 2026-10-30 09:59:22 | `football_engine.csv` | **0.6424** | 0.8591 | 16 | 15.4 | 1.1 |  |
+| 2026-10-30 10:35:08 | `football_engine.csv` | **0.7097** | 0.8907 | 14 | 17.2 | 1.0 |  |
+| 2026-10-30 10:36:04 | `football_engine.csv` | **0.7636** | 0.8915 | 16 | 15.0 | 1.1 |  |
