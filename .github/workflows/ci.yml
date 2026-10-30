@@ -48,6 +48,10 @@ jobs:
         run: |
           python run_experiment.py --test-all
 
+      - name: Golden Spell Regression Tests (skipped when gated match data is absent)
+        run: |
+          python tests/test_golden_spells.py
+
       - name: Validate Baseline Submission Formats
         run: |
           python evaluation/validate_submission.py evaluation/results/baseline_smooth50.csv

@@ -26,3 +26,7 @@
 | 2026-10-30 12:12:10 | `football_engine.csv` | **0.8667** | 0.9617 | 13 | 18.7 | 0.81 | v8 full-match set-piece audit: fix 30s consecutive set-piece bridge overwrite (recovering 7 full-match possessions / 106.8s of live play), extend delayed set-piece NaN/OOB wait to 320f, and verify Throw-in (Team: N/A) restart teams against post-throw ball control |
 | 2026-10-30 12:35:51 | `football_engine.csv` | **0.9375** | 0.9695 | 15 | 16.2 | 0.9 |  |
 | 2026-10-30 12:54:57 | `football_engine.csv` | **0.9375** | 0.9730 | 15 | 16.3 | 0.9 |  |
+| 2026-10-30 13:21:18 | `football_engine.csv` | **0.9375** | 0.9730 | 15 | 16.3 | 0.9 |  |
+| 2026-10-30 13:54:44 | `football_engine.csv` | **0.9000** | 0.9599 | 15 | 16.5 | 0.9 | v12: Fix touchline grazes, live-play OOB bridging, and early-tagged set-piece pre-rolls (21286..21611, 125000..125148, 163527..163736) |
+| 2026-10-30 13:56:17 | `football_engine.csv` | **0.9375** | 0.9730 | 15 | 16.3 | 0.9 | v12: Fix touchline grazes, live-play OOB bridging, and early-tagged set-piece pre-rolls (21286..21611, 125000..125148, 163527..163736) |
+| 2026-10-30 14:20:45 | `football_engine.csv` | **0.9375** | 0.9730 | 15 | 16.3 | 0.9 |  |

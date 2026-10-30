@@ -137,7 +137,7 @@ def run_pipeline(
     print("Step 4: Reconstructing missing ball trajectories...")
     interp_ball, is_imputed = reconstruct_ball_trajectory(ball_coords, max_gap_frames=max_interp_gap)
     apply_pitch_boundary_dead_balls(labels_mask, interp_ball, tolerance=0.005)
-    bridge_out_of_bounds_to_set_pieces(labels_mask, stoppages)
+    bridge_out_of_bounds_to_set_pieces(labels_mask, stoppages, ball_coords=interp_ball)
 
     # 5. Extract frame-level control signals
     print("Step 5: Extracting control signals...")

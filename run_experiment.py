@@ -50,32 +50,40 @@ def build_match_context(use_cache=True):
         ball_coords = cached["ball_coords"]
         player_coords = cached["player_coords"]
         player_teams = cached["player_teams"]
-        dead_mask = cached["dead_ball_mask"]
+    else:
+        # Stream tracking from raw ATD files
+        player_teams = load_player_teams_from_meta(paths["atd_meta"])
+        n_slots = len(player_teams)
+        ball_coords = np.full((n_frames, 2), np.nan, dtype=np.float32)
+        player_coords = np.full((n_frames, n_slots, 2), np.nan, dtype=np.float32)
 
-        restarts = {11185: "A", 113742: "H"}
-        stoppages = []
-        if os.path.isfile(paths["smart_tagging"]):
-            stoppages = parse_smart_tagging_stoppages(paths["smart_tagging"])
-            for s in stoppages:
-                if s.get("restart_team") in ("H", "A"):
-                    restarts[s["restart_frame"]] = s["restart_team"]
-                elif s["team"].lower() in ("barcelona", "h"):
-                    restarts[s["restart_frame"]] = "H"
-                elif s["team"].lower() in ("atletic club", "athletic club", "a"):
-                    restarts[s["restart_frame"]] = "A"
+        with open(paths["atd_raw"], "r") as handle:
+            for line in handle:
+                parts = line.strip().split(":")
+                if len(parts) != 3:
+                    continue
+                v_frame = int(parts[0]) - 1
+                if not (0 <= v_frame < n_frames):
+                    continue
 
-            throw_in_restarts = resolve_throw_in_restart_teams(stoppages, player_coords, player_teams, n_frames)
-            restarts.update(throw_in_restarts)
+                # Players
+                p_str = parts[1]
+                if p_str:
+                    for idx, item in enumerate(p_str.split(";")):
+                        if idx >= n_slots:
+                            break
+                        vals = item.split(",")
+                        if len(vals) >= 2 and vals[0] != "NaN" and vals[1] != "NaN":
+                            player_coords[v_frame, idx, 0] = float(vals[0])
+                            player_coords[v_frame, idx, 1] = float(vals[1])
 
-        return TrackingContext(
-            n_frames=n_frames,
-            ball_coords=ball_coords,
-            player_coords=player_coords,
-            player_teams=player_teams,
-            dead_ball_mask=dead_mask,
-            restarts=restarts,
-            smart_tagging_stoppages=stoppages,
-        )
+                # Ball
+                b_str = parts[2]
+                if b_str:
+                    vals = b_str.split(",")
+                    if len(vals) >= 2 and vals[0] != "NaN" and vals[1] != "NaN":
+                        ball_coords[v_frame, 0] = float(vals[0])
+                        ball_coords[v_frame, 1] = float(vals[1])
 
     # 1. Base boundaries
     dead_mask = init_frame_mask(n_frames)
@@ -98,42 +106,9 @@ def build_match_context(use_cache=True):
             elif s["team"].lower() in ("atletic club", "athletic club", "a"):
                 restarts[s["restart_frame"]] = "A"
 
-    # 3. Stream tracking
-    player_teams = load_player_teams_from_meta(paths["atd_meta"])
-    n_slots = len(player_teams)
-    ball_coords = np.full((n_frames, 2), np.nan, dtype=np.float32)
-    player_coords = np.full((n_frames, n_slots, 2), np.nan, dtype=np.float32)
-
-    with open(paths["atd_raw"], "r") as handle:
-        for line in handle:
-            parts = line.strip().split(":")
-            if len(parts) != 3:
-                continue
-            v_frame = int(parts[0]) - 1
-            if not (0 <= v_frame < n_frames):
-                continue
-
-            # Players
-            p_str = parts[1]
-            if p_str:
-                for idx, item in enumerate(p_str.split(";")):
-                    if idx >= n_slots:
-                        break
-                    vals = item.split(",")
-                    if len(vals) >= 2 and vals[0] != "NaN" and vals[1] != "NaN":
-                        player_coords[v_frame, idx, 0] = float(vals[0])
-                        player_coords[v_frame, idx, 1] = float(vals[1])
-
-            # Ball
-            b_str = parts[2]
-            if b_str:
-                vals = b_str.split(",")
-                if len(vals) >= 2 and vals[0] != "NaN" and vals[1] != "NaN":
-                    ball_coords[v_frame, 0] = float(vals[0])
-                    ball_coords[v_frame, 1] = float(vals[1])
-
+    # 3. Pitch boundaries and stoppage bridging
     apply_pitch_boundary_dead_balls(dead_mask, ball_coords, tolerance=0.005)
-    bridge_out_of_bounds_to_set_pieces(dead_mask, stoppages)
+    bridge_out_of_bounds_to_set_pieces(dead_mask, stoppages, ball_coords=ball_coords)
 
     # Resolve throw-in restart teams from sideline positioning
     throw_in_restarts = resolve_throw_in_restart_teams(stoppages, player_coords, player_teams, n_frames)

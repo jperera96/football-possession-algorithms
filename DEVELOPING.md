@@ -103,6 +103,15 @@ python run_experiment.py --test-all
 python run_experiment.py --list
 ```
 
+### Regression Guard (needs the match data)
+The public GT covers only 5 minutes, so regressions elsewhere in the match are invisible to the scorer. Two tools cover the full match:
+```bash
+python tests/test_golden_spells.py     # physical golden cases, one per human-reported bug (skips without data)
+python tools/regression_check.py       # public metric floor + diff vs tests/baseline/football_engine_segments.json
+python tools/regression_check.py --update   # after verifying every listed region is intended
+```
+Add a golden case to `tests/test_golden_spells.py` for every new bug you fix, and commit the updated baseline together with the code.
+
 ### Check Data Asset Status
 ```bash
 python tools/data_status.py

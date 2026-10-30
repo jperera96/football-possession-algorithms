@@ -96,5 +96,12 @@ Total graded frames: **158,857**.
     `.\.venv\Scripts\python.exe evaluation/run_evaluation.py`
   - Compact agent evaluation:
     `.\.venv\Scripts\python.exe tools/agent_eval.py --submission <path_to_submission.csv>`
+  - **Regression guard (run before every commit touching `strategies/`, `pipeline/`, `run_experiment.py`)**:
+    - Golden physical-spell tests (one case per human-reported bug; add a case for every new fix):
+      `.\.venv\Scripts\python.exe tests/test_golden_spells.py`
+    - Metric floor + full-match diff vs committed baseline (lists every changed region; exits 1 on unexpected change):
+      `.\.venv\Scripts\python.exe tools/regression_check.py`
+    - After verifying that every listed region is intended, accept it and commit the baseline with the code:
+      `.\.venv\Scripts\python.exe tools/regression_check.py --update`
   - Check dataset presence:
     `.\.venv\Scripts\python.exe tools/data_status.py`
