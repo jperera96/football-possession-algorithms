@@ -104,6 +104,10 @@ class GoldenSpells(unittest.TestCase):
         seg = self.preds[23830:24129]
         self.assertTrue(np.all(seg == "H"), "GK holding the ball must be H (not A, not D)")
 
+    def test_long_pass_past_marker_is_not_a_turnover_24935(self):
+        seg = self.preds[24700:25100]
+        self.assertTrue(np.all(seg == "H"), "Barcelona pass flying past an Athletic marker (no touch) must stay H")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
