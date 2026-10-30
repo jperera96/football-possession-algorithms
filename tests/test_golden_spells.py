@@ -120,6 +120,9 @@ class GoldenSpells(unittest.TestCase):
         self.assertTrue(np.all(self.preds[31174:31406] == "D"), "untagged foul must be dead ball until free kick service")
         self.assertTrue(np.all(self.preds[31406:31450] == "H"), "Barcelona free kick service must be H")
 
+    def test_inflight_pass_past_opponent_is_not_clearance_31614(self):
+        self.assertTrue(np.all(self.preds[31600:31630] == "H"), "Barcelona crossfield pass flying past defender is not an Athletic clearance")
+
 
 
 

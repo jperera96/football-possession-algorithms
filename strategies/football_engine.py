@@ -529,6 +529,15 @@ class FootballEngineStrategy(BaseStrategy):
                     min_dist_a[f] = sub_d[am]
                     best_slot_a[f] = v_slots[a_idx[am]]
 
+            def _is_clearance_strike(t_frame: int, dir_val: float) -> bool:
+                # A physical clearance is an active strike: the ball before the strike (t-8) was either
+                # slow (< 6.0 m/s) or an incoming pass/cross/shot moving towards defending goal (v_b * dir <= 0).
+                # If the ball was already flying at high speed in the clearance direction (v_b * dir > 0),
+                # it is an in-flight pass that merely flew past the defender without being kicked by him.
+                if not valid_b[t_frame - 8]:
+                    return True
+                return bool(b_speed[t_frame - 8] < 6.0 or (v_b[t_frame - 8, 0] * dir_val <= 0))
+
             clears = []
             for t in range(10, n_frames - 25):
                 if dead_mask[t] in ("X", "D") or not valid_b[t]:
@@ -541,18 +550,22 @@ class FootballEngineStrategy(BaseStrategy):
                     # H1: Home defends Left (bx < 52.5, clears vx > 1.0); Away defends Right (bx > 52.5, clears vx < -1.0)
                     if cur == "A" and bx < 52.5 and vx > 1.0:
                         if min_dist_h[t] <= 0.85 and min_dist_a[t] >= 1.50 and b_speed[t] >= 6.0 and surge_8f[t] >= 3.0:
-                            clears.append((t, "H", 1))
+                            if _is_clearance_strike(t, 1):
+                                clears.append((t, "H", 1))
                     elif cur == "H" and bx > 52.5 and vx < -1.0:
                         if min_dist_a[t] <= 0.85 and min_dist_h[t] >= 1.50 and b_speed[t] >= 6.0 and surge_8f[t] >= 3.0:
-                            clears.append((t, "A", -1))
+                            if _is_clearance_strike(t, -1):
+                                clears.append((t, "A", -1))
                 elif t >= 110808:
                     # H2: Home defends Right (bx > 52.5, clears vx < -1.0); Away defends Left (bx < 52.5, clears vx > 1.0)
                     if cur == "A" and bx > 52.5 and vx < -1.0:
                         if min_dist_h[t] <= 0.85 and min_dist_a[t] >= 1.50 and b_speed[t] >= 6.0 and surge_8f[t] >= 3.0:
-                            clears.append((t, "H", -1))
+                            if _is_clearance_strike(t, -1):
+                                clears.append((t, "H", -1))
                     elif cur == "H" and bx < 52.5 and vx > 1.0:
                         if min_dist_a[t] <= 0.85 and min_dist_h[t] >= 1.50 and b_speed[t] >= 6.0 and surge_8f[t] >= 3.0:
-                            clears.append((t, "A", 1))
+                            if _is_clearance_strike(t, 1):
+                                clears.append((t, "A", 1))
 
             for c_frame, c_team, c_dir in clears:
                 k_start = c_frame
