@@ -25,3 +25,4 @@
 | 2026-10-30 11:38:33 | `football_engine.csv` | **0.8667** | 0.9552 | 13 | 18.8 | 0.81 | v7 first-principles audit: GK slot disambiguation, set-piece stationary ball wait, GOALS build-up preservation, 4-way symmetric clearances with velocity-apex extension and inertia-lag bridging, kinematic pre-dead split, and unverified occlusion bridging |
 | 2026-10-30 12:12:10 | `football_engine.csv` | **0.8667** | 0.9617 | 13 | 18.7 | 0.81 | v8 full-match set-piece audit: fix 30s consecutive set-piece bridge overwrite (recovering 7 full-match possessions / 106.8s of live play), extend delayed set-piece NaN/OOB wait to 320f, and verify Throw-in (Team: N/A) restart teams against post-throw ball control |
 | 2026-10-30 12:35:51 | `football_engine.csv` | **0.9375** | 0.9695 | 15 | 16.2 | 0.9 |  |
+| 2026-10-30 12:54:57 | `football_engine.csv` | **0.9375** | 0.9730 | 15 | 16.3 | 0.9 |  |

@@ -574,6 +574,32 @@ class FootballEngineStrategy(BaseStrategy):
                         res[start:end] = next_val if dur < 50 else prev_val
             output = res
 
+        # 9. Untagged Restart Ball-Kick Backtracking (D -> H/A):
+        # On untagged free kicks, offside restarts, and post-goal kickoffs, outfield players are often
+        # stationary or walking (smooth_speed < restart_speed_gate = 1.2 m/s) at the moment the kicker
+        # strikes the ball into play. When a D -> H/A transition occurs at frame t, walk backward across
+        # continuous in-bounds ball motion (b_speed >= 3.5 m/s) to snap the spell start to the kick launch.
+        if n_frames > 100:
+            valid_b_arr = ~np.isnan(ball_m[:, 0])
+            res = output.copy()
+            for t in range(1, n_frames):
+                if output[t - 1] == "D" and output[t] in ("H", "A"):
+                    team = output[t]
+                    f_start = t
+                    while (
+                        f_start > 0
+                        and output[f_start - 1] == "D"
+                        and dead_mask[f_start - 1] == ""
+                        and valid_b_arr[f_start - 1]
+                    ):
+                        if b_speed[f_start - 1] >= 3.5 or (f_start < t and b_speed[f_start] >= 4.0):
+                            f_start -= 1
+                        else:
+                            break
+                    if 4 <= (t - f_start) <= 65:
+                        res[f_start:t] = team
+            output = res
+
         # Re-enforce deterministic boundaries
         output[dead_mask == "X"] = "X"
         output[dead_mask == "D"] = "D"

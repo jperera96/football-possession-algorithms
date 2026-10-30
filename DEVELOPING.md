@@ -74,7 +74,7 @@ All models reside in [`strategies/`](strategies/) and inherit from `BaseStrategy
 ```
 strategies/
 ├── base.py                 # Abstract BaseStrategy & TrackingContext interface
-├── football_engine.py      # Production Champion: GK Slot Disambiguation, 4-Way Symmetric Clearances, 2-Player Pass Verification, Set-Piece/Goals Gating & Occlusion Bridging (spellF1=0.9375, macroF1=0.9695)
+├── football_engine.py      # Production Champion: GK Slot Disambiguation, 4-Way Symmetric Clearances, 2-Player Pass Verification, Set-Piece/Goals/Restart Gating & Occlusion Bridging (spellF1=0.9375, macroF1=0.9730)
 ├── fsm_hysteresis.py       # Inertia-Hysteresis turnover barrier benchmark
 ├── fsm_advanced.py         # Deceleration + missing ball kinematic state machine
 ├── fsm_lookahead.py        # Primary: Football State Machine with lookahead
