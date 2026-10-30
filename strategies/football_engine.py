@@ -952,12 +952,16 @@ class FootballEngineStrategy(BaseStrategy):
                     t += 1
                     continue
                 # Ball kick launch: ball accelerates to >= 4.0 m/s from stationary
-                if not (valid_b[t] and valid_b[t - 1] and b_speed[t] >= 4.0 and b_speed[t - 1] < 4.0):
+                if not (
+                    valid_b[t]
+                    and b_speed[t] >= 4.0
+                    and (not valid_b[t - 1] or np.isnan(b_speed[t - 1]) or b_speed[t - 1] < 4.0)
+                ):
                     t += 1
                     continue
-                # Ball stationary before strike (t-35 .. t-5) for at least 25 frames
+                # Ball stationary or occluded on the ground before strike (t-35 .. t-5)
                 pre_window = range(max(0, t - 35), max(0, t - 5))
-                if len(pre_window) < 25 or not all(valid_b[f] and b_speed[f] < 2.0 for f in pre_window):
+                if not all(b_speed[f] < 2.0 for f in pre_window if valid_b[f]):
                     t += 1
                     continue
                 # Outfield players walking at kick
@@ -969,18 +973,24 @@ class FootballEngineStrategy(BaseStrategy):
                 if not all(smooth_speed[f] < 1.35 for f in pre_smo):
                     t += 1
                     continue
-                # Kicker presence
-                p = players_m[t - 1]
+                # Kicker presence at ball launch (check at t or t-1 where ball position is valid)
+                ball_ref = ball_m[t] if valid_b[t] else ball_m[t - 1]
+                p = players_m[t] if valid_b[t] else players_m[t - 1]
                 v = ~np.isnan(p[:, 0])
-                dists = np.sqrt(np.sum((p[v] - ball_m[t - 1]) ** 2, axis=1))
+                dists = np.sqrt(np.sum((p[v] - ball_ref) ** 2, axis=1))
                 if len(dists) == 0 or np.min(dists) > 1.0:
                     t += 1
                     continue
                 v_slots = np.flatnonzero(v)
                 kicker_slot = v_slots[np.argmin(dists)]
+                # A goalkeeper holding and punting the ball in live play inside their box is not an in-pitch free kick
+                if n_slots >= 46 and kicker_slot in (23, 45):
+                    if ball_ref[0] < 18.0 or ball_ref[0] > 87.3:
+                        t += 1
+                        continue
                 if n_slots >= 46 and kicker_slot in (23, 45):
                     k_tm = self._resolve_slot_team(
-                        int(kicker_slot), float(p[kicker_slot, 0]), t - 1, int(ctx.player_teams[kicker_slot]), n_slots
+                        int(kicker_slot), float(p[kicker_slot, 0]), t, int(ctx.player_teams[kicker_slot]), n_slots
                     )
                 else:
                     k_tm = int(ctx.player_teams[kicker_slot])
@@ -989,12 +999,8 @@ class FootballEngineStrategy(BaseStrategy):
 
                 # Walk backward across stoppage while players are walking or ball is dead
                 f_scan = t - 1
-                while f_scan > max(0, t - 750):
-                    p_s = players_m[f_scan]
-                    v_s = ~np.isnan(p_s[:, 0])
-                    d_s = np.sqrt(np.sum((p_s[v_s] - ball_m[f_scan]) ** 2, axis=1))
-                    min_d = np.min(d_s) if len(d_s) > 0 else 99.0
-                    is_stoppage = (smooth_speed[f_scan] < 1.40) or (b_speed[f_scan] < 1.8 and min_d > 2.0)
+                while f_scan > max(0, t - 1000):
+                    is_stoppage = (smooth_speed[f_scan] < 1.45) or (valid_b[f_scan] and b_speed[f_scan] < 2.0)
                     if not is_stoppage:
                         break
                     # Stop at the boundary of prior active possession of kicker_team
@@ -1004,11 +1010,23 @@ class FootballEngineStrategy(BaseStrategy):
 
                 t_stop = f_scan + 1
                 if (t - t_stop) >= 60 and dead_mask[t - 1] == "":
-                    if np.any(res[t_stop:t] == opp_team) or np.mean(res[t_stop:t] == "D") < 0.5:
-                        res[t_stop:t] = "D"
-                        res[t : min(n_frames, t + 25)] = kicker_team
-                        t += 50
-                        continue
+                    res[t_stop:t] = "D"
+                    look_ahead = min(n_frames, t + 150)
+                    k_indices = np.flatnonzero(res[t:look_ahead] == kicker_team)
+                    end_pos = min(n_frames, t + 55)
+                    if len(k_indices) > 0:
+                        cand_end = t + int(k_indices[-1]) + 1
+                        opp_ctrl = False
+                        dist_opp = min_dist_a if kicker_team == "H" else min_dist_h
+                        for f_chk in range(t, cand_end):
+                            if dist_opp[f_chk] <= 1.2:
+                                opp_ctrl = True
+                                break
+                        if not opp_ctrl:
+                            end_pos = max(end_pos, cand_end)
+                    res[t:end_pos] = kicker_team
+                    t = end_pos - 1
+                    continue
                 t += 1
             output = res
 

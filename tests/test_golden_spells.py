@@ -123,6 +123,10 @@ class GoldenSpells(unittest.TestCase):
     def test_inflight_pass_past_opponent_is_not_clearance_31614(self):
         self.assertTrue(np.all(self.preds[31600:31630] == "H"), "Barcelona crossfield pass flying past defender is not an Athletic clearance")
 
+    def test_untagged_foul_and_restart_33204_to_33896(self):
+        self.assertTrue(np.all(self.preds[33204:33896] == "D"), "foul stoppage 33204..33896 must be 100% dead ball D without glitches")
+        self.assertTrue(np.all(self.preds[33896:34040] == "H"), "Barcelona serves foul at 33896 and retains possession")
+
 
 
 
