@@ -241,7 +241,8 @@ def bridge_out_of_bounds_to_set_pieces(labels, stoppages, max_gap_sec=30.0, fps=
                             break
                     else:
                         live_run = 0
-                        if labels[f] == "D":
+                        # Ball is dead if marked D, or missing (NaN) after exiting pitch boundary into set piece
+                        if labels[f] == "D" or not valid_c[f]:
                             earliest_d = f
                 if earliest_d < restart_f:
                     for f in range(earliest_d, restart_f):

@@ -670,31 +670,6 @@ class FootballEngineStrategy(BaseStrategy):
                         if fb < t_tr:
                             output[fb:t_tr] = new_t
 
-        # 6d. Untouched-Ball Bystander Segment Removal:
-        # A possession cannot pass to a team that never got near the ball. When a short segment (< 100f)
-        # of one team is enclosed by the other team on both sides and none of its players ever came within
-        # `untouched_radius` (1.5m, i.e. no touch/control) while the ball was tracked, the ball merely flew
-        # past bystanders (long pass past a marker): merge it back into the surrounding possession.
-        if self.enable_clearance_splits and ctx.player_teams is not None and n_frames > 100:
-            res = output.copy()
-            i = 0
-            while i < n_frames:
-                if res[i] not in ("H", "A"):
-                    i += 1
-                    continue
-                start, val = i, res[i]
-                while i < n_frames and res[i] == val:
-                    i += 1
-                end = i
-                prev_val = res[start - 1] if start > 0 else None
-                next_val = res[end] if end < n_frames else None
-                if (end - start) < 100 and prev_val == next_val and prev_val in ("H", "A") and prev_val != val:
-                    d_seg = min_dist_h if val == "H" else min_dist_a
-                    seen = valid_b[start:end]
-                    if np.any(seen) and float(np.min(d_seg[start:end][seen])) > 1.5:
-                        res[start:end] = prev_val
-            output = res
-        
         # 8. Unverified Camera-Occlusion 'D' Bridging (< min_unverified_dead frames where dead_mask is empty)
         if self.min_unverified_dead is not None and self.min_unverified_dead > 0:
             res = output.copy()
@@ -716,6 +691,36 @@ class FootballEngineStrategy(BaseStrategy):
                         res[start:end] = next_val if dur < 50 else prev_val
             output = res
         
+        # 6d. Untouched-Ball Bystander Segment Removal:
+        # A possession cannot pass to a team that never got near the ball. When a short segment (< 100f)
+        # of one team is enclosed by the other team on both sides and none of its players ever came within
+        # `untouched_radius` (1.5m, i.e. no touch/control) while the ball was tracked, the ball merely flew
+        # past bystanders (long pass past a marker): merge it back into the surrounding possession.
+        if self.enable_clearance_splits and ctx.player_teams is not None and n_frames > 100:
+            res = output.copy()
+            i = 0
+            while i < n_frames:
+                if res[i] not in ("H", "A"):
+                    i += 1
+                    continue
+                start, val = i, res[i]
+                while i < n_frames and res[i] == val:
+                    i += 1
+                end = i
+                prev_val = res[start - 1] if start > 0 else None
+                next_val = res[end] if end < n_frames else None
+                if (end - start) < 100 and prev_val == next_val and prev_val in ("H", "A") and prev_val != val:
+                    d_seg = min_dist_h if val == "H" else min_dist_a
+                    seen = valid_b[start:end]
+                    if np.any(seen):
+                        d_min = float(np.min(d_seg[start:end][seen]))
+                        max_spd = float(np.nanmax(b_speed[start:end][seen])) if np.any(~np.isnan(b_speed[start:end][seen])) else 0.0
+                        is_untouched = (d_min > 1.5) or (d_min > 1.2 and max_spd >= 8.0)
+                        if is_untouched:
+                            res[start:end] = prev_val
+            output = res
+        
+
         # 6e. Contested Duel / Incomplete Turnover Rejection:
         # A defender challenging, deflecting, or contesting the ball during an ongoing attack does not constitute
         # a turnover unless the defending team establishes controlled team possession. If an enclosed segment of the opposing

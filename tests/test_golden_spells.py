@@ -141,5 +141,13 @@ class GoldenSpells(unittest.TestCase):
         self.assertTrue(np.all(self.preds[46678:46750] == "D"), "Post-goal celebration must be D")
 
 
+    def test_inflight_pass_past_marker_51645(self):
+        self.assertTrue(np.all(self.preds[51640:51675] == "H"), "Barcelona flank pass flying past Athletic marker is not Athletic possession")
+
+    def test_deflection_out_of_bounds_52161(self):
+        self.assertTrue(np.all(self.preds[52140:52220] == "H"), "Barcelona possession until ball crosses boundary must be H")
+        self.assertTrue(np.all(self.preds[52220:52600] == "D"), "Out of bounds ball until free kick restart must be D")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
