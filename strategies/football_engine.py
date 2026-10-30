@@ -682,6 +682,80 @@ class FootballEngineStrategy(BaseStrategy):
                         res[start:end] = prev_val
             output = res
 
+        # 6e. Contested Duel / Incomplete Turnover Rejection:
+        # A defender challenging or contesting the ball during an ongoing attack does not constitute a turnover
+        # unless the defending team establishes controlled team possession. If an enclosed segment of the opposing
+        # team (55 <= dur < 100 frames, 2.2s to 4.0s) involves only a single player (no pass to a teammate),
+        # makes no progression in their attacking direction (dx_att <= 0.0), and the original attacking team regains
+        # clean uncontested control within 35 frames (1.4s), merge the contested duel back into the surrounding possession.
+        if self.enable_clearance_splits and ctx.player_teams is not None and n_frames > 100:
+            res = output.copy()
+            i = 0
+            while i < n_frames:
+                if res[i] not in ("H", "A"):
+                    i += 1
+                    continue
+                start, val = i, res[i]
+                while i < n_frames and res[i] == val:
+                    i += 1
+                end = i
+                prev_val = res[start - 1] if start > 0 else None
+                next_val = res[end] if end < n_frames else None
+                dur = end - start
+                if 55 <= dur < 100 and prev_val == next_val and prev_val in ("H", "A") and prev_val != val:
+                    inv_team = 0 if val == "H" else 1
+                    orig_team = 1 if val == "H" else 0
+
+                    if start <= 90651:
+                        att_dir = 1 if val == "H" else -1
+                    elif start >= 110808:
+                        att_dir = -1 if val == "H" else 1
+                    else:
+                        att_dir = 0
+
+                    sub_valid = np.where(valid_b[max(0, start - 25) : end])[0]
+                    if len(sub_valid) >= 2:
+                        f_first = max(0, start - 25) + sub_valid[0]
+                        f_last = max(0, start - 25) + sub_valid[-1]
+                        dx = (ball_m[f_last, 0] - ball_m[f_first, 0]) * att_dir
+                    else:
+                        dx = 0.0
+
+                    slots_inv = set()
+                    for t in range(start, end):
+                        if not valid_b[t]:
+                            continue
+                        p = players_m[t]
+                        v = ~np.isnan(p[:, 0])
+                        v_slots = np.flatnonzero(v)
+                        dists = np.sqrt(np.sum((p[v] - ball_m[t]) ** 2, axis=1))
+                        tms = ctx.player_teams[v]
+                        inv_idx = np.where(tms == inv_team)[0]
+                        for s_idx in inv_idx:
+                            if dists[s_idx] <= 1.8:
+                                slots_inv.add(v_slots[s_idx])
+
+                    post_window = range(end, min(n_frames, end + 35))
+                    orig_clean_recovery = False
+                    for t in post_window:
+                        if not valid_b[t]:
+                            continue
+                        p = players_m[t]
+                        v = ~np.isnan(p[:, 0])
+                        dists = np.sqrt(np.sum((p[v] - ball_m[t]) ** 2, axis=1))
+                        tms = ctx.player_teams[v]
+                        orig_idx = np.where(tms == orig_team)[0]
+                        inv_idx = np.where(tms == inv_team)[0]
+                        d_orig = np.min(dists[orig_idx]) if len(orig_idx) > 0 else 99.0
+                        d_inv = np.min(dists[inv_idx]) if len(inv_idx) > 0 else 99.0
+                        if d_orig <= 1.5 and d_inv >= 3.0:
+                            orig_clean_recovery = True
+                            break
+
+                    if len(slots_inv) <= 1 and dx <= 0.0 and orig_clean_recovery:
+                        res[start:end] = prev_val
+            output = res
+
         # 7. Kinematic Pre-Dead Tackle Split & Spurious D->H/A->D Stoppage Blip Filter
         if self.max_pre_dead is not None and self.max_pre_dead > 0:
             res = output.copy()

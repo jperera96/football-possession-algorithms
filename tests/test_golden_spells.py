@@ -112,6 +112,11 @@ class GoldenSpells(unittest.TestCase):
         self.assertTrue(np.all(self.preds[26640:26670] == "H"), "Barcelona shot in flight is not a dead ball")
         self.assertTrue(np.all(self.preds[26690:26950] == "A"), "Athletic GK holding the saved ball is A, not D")
 
+    def test_contested_duel_deflection_is_not_turnover_28354(self):
+        seg = self.preds[28300:28550]
+        self.assertTrue(np.all(seg == "H"), "Barcelona pass contested by retreating defender without pass or progression must stay H")
+
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
