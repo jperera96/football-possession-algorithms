@@ -1016,6 +1016,17 @@ class FootballEngineStrategy(BaseStrategy):
                     if ball_ref[0] < 18.0 or ball_ref[0] > 87.3:
                         t += 1
                         continue
+
+                # In-pitch free kicks require a stationary ball on the grass (IFAB Law 13):
+                # Outfield free kick: ball displacement over the 30f pre-kick window must not exceed 0.65m (tracking jitter).
+                # Goalkeeper set-pieces: allow up to 1.05m nudge/setup before the strike.
+                valid_pre = [f for f in pre_window if valid_b[f]]
+                if len(valid_pre) >= 2:
+                    disp_pre = float(np.linalg.norm(ball_m[valid_pre[-1]] - ball_m[valid_pre[0]]))
+                    max_disp = 1.05 if (kicker_slot in (23, 45)) else 0.65
+                    if disp_pre > max_disp:
+                        t += 1
+                        continue
                 if n_slots >= 46 and kicker_slot in (23, 45):
                     k_tm = self._resolve_slot_team(
                         int(kicker_slot), float(p[kicker_slot, 0]), t, int(ctx.player_teams[kicker_slot]), n_slots

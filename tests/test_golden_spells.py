@@ -154,6 +154,9 @@ class GoldenSpells(unittest.TestCase):
         self.assertTrue(np.all(self.preds[53263:54150] == "D"), "Untagged offside stoppage must be dead ball D until goalkeeper serves")
         self.assertTrue(np.all(self.preds[54165:54220] == "A"), "Athletic goalkeeper free kick launch must be A")
 
+    def test_continuous_barcelona_passing_spell_55031(self):
+        self.assertTrue(np.all(self.preds[54950:55255] == "H"), "Live Barcelona passing sequence 54950..55255 must be continuous H without spurious dead ball")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
