@@ -123,11 +123,42 @@ class FootballEngineStrategy(BaseStrategy):
             b_speed[np.isnan(b_speed)] = 0.0
 
         # 0c. Refine Smart Tagging stoppages & restarts:
+        # - Recover consecutive set-piece intervals (< 33s apart) overwritten by 30s lookback bridging.
         # - For GOALS tags: preserve live attacking build-up before the post-goal celebration NaN stretch.
-        # - For SET PIECES tags: hold 'D' while the ball is stationary (< 4.0 m/s) prior to kick execution.
+        # - For SET PIECES tags: hold 'D' while the ball is NaN, out-of-bounds, or stationary (< 4.0 m/s) up to 320f.
         restarts = dict(ctx.restarts) if ctx.restarts else {}
         dead_mask = ctx.dead_ball_mask.copy()
+        effective_rfs = {}
         if ctx.smart_tagging_stoppages:
+            set_pieces = sorted(
+                [s for s in ctx.smart_tagging_stoppages if s.get("code") == "set pieces"],
+                key=lambda x: x["restart_frame"],
+            )
+            for i in range(1, len(set_pieces)):
+                prev_sp = set_pieces[i - 1]
+                curr_sp = set_pieces[i]
+                rf_prev = prev_sp["restart_frame"]
+                ds_curr = curr_sp["dead_start"]
+                gap = curr_sp["restart_frame"] - rf_prev
+                if 0 < gap <= 825 and rf_prev < ds_curr and dead_mask[rf_prev] == "D":
+                    dead_mask[rf_prev:ds_curr] = ""
+                    sub_c = ctx.ball_coords[rf_prev:ds_curr]
+                    valid_c = ~np.isnan(sub_c[:, 0]) & ~np.isnan(sub_c[:, 1])
+                    oob = (
+                        (sub_c[:, 0] < -0.005)
+                        | (sub_c[:, 0] > 1.005)
+                        | (sub_c[:, 1] < -0.005)
+                        | (sub_c[:, 1] > 1.005)
+                    )
+                    dead_mask[rf_prev:ds_curr][valid_c & oob] = "D"
+                    in_bounds = np.where(valid_c & ~oob)[0]
+                    if len(in_bounds) > 0:
+                        first_in = rf_prev + int(in_bounds[0])
+                        oob_after = np.where(dead_mask[first_in:ds_curr] == "D")[0]
+                        if len(oob_after) > 0:
+                            first_oob_after = first_in + int(oob_after[0])
+                            dead_mask[first_oob_after:ds_curr] = "D"
+
             for s in ctx.smart_tagging_stoppages:
                 if s.get("code") == "goals":
                     gs, ge = s["dead_start"], s["dead_end"]
@@ -169,15 +200,22 @@ class FootballEngineStrategy(BaseStrategy):
                     rt = restarts.get(rf)
                     if 0 < rf < n_frames and dead_mask[rf - 1] == "D":
                         kick_f = rf
-                        for scan_f in range(rf, min(n_frames, rf + 120)):
-                            if b_speed[scan_f] >= 4.0:
+                        for scan_f in range(rf, min(n_frames, rf + 320)):
+                            if (
+                                dead_mask[scan_f] != "D"
+                                and not np.isnan(ball_m[scan_f, 0])
+                                and b_speed[scan_f] >= 4.0
+                            ):
                                 kick_f = scan_f
                                 break
                         if kick_f > rf:
                             dead_mask[rf:kick_f] = "D"
-                            if rt is not None:
+                            if rt is not None and rf in restarts:
                                 del restarts[rf]
                                 restarts[kick_f] = rt
+                            effective_rfs[rf] = kick_f
+                        else:
+                            effective_rfs[rf] = rf
 
         # 1. Compute frame-level nearest player codes within control radius (-1: None/Flight, 0: H, 1: A)
         raw_codes = np.full(n_frames, -1, dtype=np.int8)
@@ -213,6 +251,20 @@ class FootballEngineStrategy(BaseStrategy):
         # 2. Cumulative observation evidence
         home_cum = np.concatenate(([0], np.cumsum(raw_codes == 0)))
         away_cum = np.concatenate(([0], np.cumsum(raw_codes == 1)))
+
+        # Verify Throw-in (Team: N/A) restart assignments against actual post-throw ball control
+        if ctx.smart_tagging_stoppages:
+            for s in ctx.smart_tagging_stoppages:
+                if s.get("code") == "set pieces" and s.get("type", "").lower() == "throw-in":
+                    rf = s["restart_frame"]
+                    eff_rf = effective_rfs.get(rf, rf)
+                    end_w = min(n_frames, eff_rf + 75)
+                    h_post = int(home_cum[end_w] - home_cum[eff_rf])
+                    a_post = int(away_cum[end_w] - away_cum[eff_rf])
+                    if h_post > a_post + 3:
+                        restarts[eff_rf] = "H"
+                    elif a_post > h_post + 3:
+                        restarts[eff_rf] = "A"
 
         index = np.arange(n_frames)
         low = np.maximum(0, index - self.w_past)

@@ -170,17 +170,23 @@ def bridge_out_of_bounds_to_set_pieces(labels, stoppages, max_gap_sec=30.0, fps=
         fps: Frames per second
     """
     max_gap_frames = int(round(max_gap_sec * fps))
-    for s in stoppages:
-        if s.get("code") != "set pieces":
-            continue
+    set_pieces = sorted(
+        [s for s in stoppages if s.get("code") == "set pieces"],
+        key=lambda x: x["restart_frame"],
+    )
+    prev_restart_f = 0
+    for s in set_pieces:
         restart_f = s["restart_frame"]
-        search_start = max(0, restart_f - max_gap_frames)
-        d_indices = np.where(labels[search_start:restart_f] == "D")[0]
-        if len(d_indices) > 0:
-            first_d = search_start + d_indices[0]
-            for f in range(first_d, restart_f):
-                if labels[f] == "":
-                    labels[f] = "D"
+        # Never look back across a previous set piece's restart and initial execution window
+        search_start = max(prev_restart_f + 150, restart_f - max_gap_frames)
+        if search_start < restart_f:
+            d_indices = np.where(labels[search_start:restart_f] == "D")[0]
+            if len(d_indices) > 0:
+                first_d = search_start + d_indices[0]
+                for f in range(first_d, restart_f):
+                    if labels[f] == "":
+                        labels[f] = "D"
+        prev_restart_f = restart_f
     return labels
 
 

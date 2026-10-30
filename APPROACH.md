@@ -2,7 +2,7 @@
 
 **Team**: Antigravity AI / More Than A Hack 2027  
 **Match**: FC Barcelona vs Athletic Club (`BAR-ATH`), LaLiga 2024-25 Matchday 2  
-**Benchmark**: **`spellF1 = 0.8667`** (Rank #1 Metric — Uniform `0.8667` across all five IoU thresholds `0.3..0.7`) | **`macroF1 = 0.9552`** (First Tie-Breaker)  
+**Benchmark**: **`spellF1 = 0.8667`** (Rank #1 Metric — Uniform `0.8667` across all five IoU thresholds `0.3..0.7`) | **`macroF1 = 0.9617`** (First Tie-Breaker)  
 
 ---
 
@@ -12,27 +12,27 @@ The ball possession inference problem presents unique spatial-temporal challenge
 
 Conventional frame-by-frame classifiers or naive rolling majority windows fail because they treat consecutive video frames as independent observations, creating severe fragmentation (up to 131 fragmented possessions vs 17 real possessions in baseline models).
 
-The **Production Football Possession Engine (`football_engine` v7)** solves this by formulating possession as an **inertia-driven continuous state machine** governed by fundamental football physics and first-principles tracking metadata disambiguation:
+The **Production Football Possession Engine (`football_engine` v8)** solves this by formulating possession as an **inertia-driven continuous state machine** governed by fundamental football physics and first-principles tracking metadata disambiguation:
 
-| Metric | Competition Floor | Previous v6 | **Current v7 (Production)** |
+| Metric | Competition Floor | Previous v6 | **Current v8 (Production)** |
 |---|---|---|---|
 | **`spellF1` (Primary Metric)** | `0.2433` | `0.7636` | **`0.8667`** (+256% over baseline) |
 | **`spellF1` @ IoU `0.3 / 0.4 / 0.5 / 0.6 / 0.7`** | `0.42..0.24` | `0.85 / 0.79 / 0.79 / 0.73 / 0.67` | **`0.867 / 0.867 / 0.867 / 0.867 / 0.867`** |
 | **Spell Precision @ IoU `0.7`** | `0.1538` | `0.6875` (`11/16`) | **`1.0000` (`13/13` — 0 spurious!)** |
-| **`macroF1` (Tie-Breaker)** | `0.6207` | `0.8915` | **`0.9552`** (+33.5 pp) |
+| **`macroF1` (Tie-Breaker)** | `0.6207` | `0.8915` | **`0.9617`** (+34.1 pp) |
 | Barcelona (`H`) F1 | `0.6868` | `0.9345` | **`0.9693`** |
-| Athletic Club (`A`) F1 | `0.6025` | `0.8894` | **`0.9476`** |
-| Dead Ball (`D`) F1 | `0.5727` | `0.8507` | **`0.9486`** |
-| Alive / Dead F1 | `0.8920` | `0.9531` | **`0.9879`** |
-| Transition F1 @ $\pm 25\text{f}$ | `0.0816` | `0.4762` | **`0.7222`** (latency: **+5.4 frames = 0.21s**) |
-| Controlled Possession Share Error | `0.0480` | `0.0080` | **`0.0021`** (`57.5%` vs `57.3%` GT) |
-| Full Match Possessions (90 min) | `131` (raw noise) | `326` (`10.0s`) | **`258`** (`13.1s` mean, `61.3% H / 38.7% A`) |
+| Athletic Club (`A`) F1 | `0.6025` | `0.8894` | **`0.9543`** |
+| Dead Ball (`D`) F1 | `0.5727` | `0.8507` | **`0.9617`** |
+| Alive / Dead F1 | `0.8920` | `0.9531` | **`0.9908`** |
+| Transition F1 @ $\pm 25\text{f}$ | `0.0816` | `0.4762` | **`0.7778`** (latency: **+4.2 frames = 0.17s**) |
+| Controlled Possession Share Error | `0.0480` | `0.0080` | **`0.0055`** (`57.8%` vs `57.3%` GT) |
+| Full Match Possessions (90 min) | `131` (raw noise) | `326` (`10.0s`) | **`265`** (`12.7s` mean, `60.4% H / 39.6% A`) |
 
 ```
 scoreboard  gt\BAR-ATH_possession_gt_public.csv  199319 frames  7500 graded  21 gt segments
 rank  submission                macroF1  spellF1   poss     dur  transF1  lat_f  shareE  frag
 ----  ------------------------  -------  -------  -----  ------  -------  -----  ------  ----
-   1  football_engine            0.9552   0.8667     13    18.8   0.7222   +5.4   0.002  0.81
+   1  football_engine            0.9617   0.8667     13    18.7   0.7778   +4.2   0.005  0.81
    2  baseline_smooth125         0.5812   0.4242     16    18.5   0.1667   -7.7   0.052  0.81
    3  baseline_smooth50          0.6207   0.3256     26    10.8   0.0816   +4.0   0.048  1.43
    4  fsm_hysteresis             0.6686   0.3053     21    11.4   0.0889  +12.0   0.038  1.24
@@ -60,9 +60,10 @@ In `BAR-ATH_tactical_atd.xml`, only two track slots carry `<Value>Goalkeeper</Va
 - **2nd Half (`110808..190197`)**: Teams switch ends (`H` defends Right $x > 52.5\text{ m}$, `A` defends Left $x < 52.5\text{ m}$), where `s23` is in the Left penalty box for 1,263 frames and `s45` is in the Right penalty box for 9,594 frames.
 - **Resolution**: `_resolve_slot_team` resolves goalkeeper slot identity (`slot in (23, 45)`) deterministically from pitch half and match half.
 
-### Principle 2: Smart Tagging `GOALS` Build-Up Preservation & `SET PIECES` Stationary Ball Wait
-1. **`GOALS` Pre-Goal Attacking Build-Up**: In `BAR-ATH_tactical_smart_tagging.xml`, the 4 `GOALS` clips (`[45947..49656]`, `[57283..62037]`, `[73710..75482]`, `[156757..163025]`) begin **20–30 seconds before the goal is scored**, covering the entire attacking build-up and shot before the post-goal celebration. Rather than marking the entire `[start_s .. end_s]` window as `'D'`, the engine locates the start of the post-shot celebration `NaN`-ball stretch (`46678`, `58081`, `73997`, `157546`) and unmasks the pre-goal build-up, recovering **1,544 frames (61.8 seconds) of live goal-scoring play** on the full match.
-2. **`SET PIECES` Stationary Ball Wait**: Set-piece tags (`Goal Kick`, `Free Kick`, `Corner Kick`, `Throw-in`) often begin 1–2 seconds before the player strikes the stationary ball. When a set-piece `restart_frame` is preceded by `'D'`, the engine holds `'D'` and shifts the restart anchor forward until the ball is struck ($v_{ball} \ge 4.0\text{ m/s}$ within 120 frames), boosting `GT #16` IoU from `0.811` to **`0.914`**.
+### Principle 2: Smart Tagging `GOALS` Build-Up Preservation & `SET PIECES` Full-Match Integrity
+1. **Consecutive `SET PIECES` Bridge Recovery**: In `pipeline/dead_ball.py`, a 30-second lookback bridge previously crossed backwards over earlier set pieces whenever two set pieces occurred within 30 seconds of each other, wiping out **7 complete possessions (`2,671 frames = 106.8 seconds`)** of live football in the full match. Clamping the lookback window to the previous set piece's restart and re-evaluating only genuine out-of-bounds transitions recovers all 7 full-match possessions.
+2. **`GOALS` Pre-Goal Attacking Build-Up**: In `BAR-ATH_tactical_smart_tagging.xml`, the 4 `GOALS` clips (`[45947..49656]`, `[57283..62037]`, `[73710..75482]`, `[156757..163025]`) begin **20–30 seconds before the goal is scored**, covering the entire attacking build-up and shot before the post-goal celebration. Rather than marking the entire `[start_s .. end_s]` window as `'D'`, the engine locates the start of the post-shot celebration `NaN`-ball stretch (`46678`, `58081`, `73997`, `157546`) and unmasks the pre-goal build-up, recovering **1,544 frames (61.8 seconds) of live goal-scoring play** on the full match.
+3. **`SET PIECES` Delayed Setup Wait & `Throw-in` Verification**: Set-piece tags (`Goal Kick`, `Free Kick`, `Corner Kick`, `Throw-in`) often begin several seconds before the player strikes or throws the ball. When a set-piece `restart_frame` is preceded by `'D'`, the engine holds `'D'` and shifts the restart anchor forward until the ball is visible, in-bounds, and moving ($v_{ball} \ge 4.0\text{ m/s}$ within 320 frames), boosting `GT #15` IoU from `0.797` to **`0.940`** and `GT #16` IoU to **`0.914`**. Additionally, `Team: N/A` throw-ins are verified against post-throw ball control (`[eff_rf, eff_rf + 75]`), eliminating 4 false team splits on full-match throw-ins.
 
 ### Principle 3: Possession Inertia with Hysteresis Barrier & Dynamic Flight Gating
 When a team establishes possession, they retain it across passes in flight, loose-ball scuffles, and occlusions:
