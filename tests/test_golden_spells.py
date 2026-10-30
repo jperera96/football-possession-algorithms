@@ -116,6 +116,11 @@ class GoldenSpells(unittest.TestCase):
         seg = self.preds[28300:28550]
         self.assertTrue(np.all(seg == "H"), "Barcelona pass contested by retreating defender without pass or progression must stay H")
 
+    def test_untagged_foul_dead_ball_until_service_31174(self):
+        self.assertTrue(np.all(self.preds[31174:31406] == "D"), "untagged foul must be dead ball until free kick service")
+        self.assertTrue(np.all(self.preds[31406:31450] == "H"), "Barcelona free kick service must be H")
+
+
 
 
 if __name__ == "__main__":

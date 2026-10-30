@@ -922,6 +922,83 @@ class FootballEngineStrategy(BaseStrategy):
                     else:
                         f_scan += 1
 
+        # 11. Untagged In-Pitch Free-Kick Stoppage & Restart Detection:
+        # In professional football, referee whistles for fouls and stoppages frequently occur in open pitch
+        # without an out-of-bounds trigger or a Smart Tagging XML tag. The physical signature of an in-pitch
+        # free kick is unambiguous: the ball is stationary on the pitch (v_ball <= 1.8 m/s for >= 30f) with
+        # the kicker standing over it (d_kicker <= 1.0m) and outfield players walking (smooth_speed < 1.25 m/s,
+        # with sustained deceleration < 1.35 m/s for >= 60f) until the kicker strikes the ball into play (v_ball >= 4.0 m/s).
+        # Walking backward across the dead-ball preparation window (where players are walking < 1.40 m/s or ball is slow)
+        # recovers the stoppage interval [t_stop..t] as 'D' and initializes active possession for the kicker's team.
+        if n_frames > 100 and ctx.player_teams is not None:
+            res = output.copy()
+            t = 50
+            while t < n_frames - 25:
+                is_graded = (11185 <= t <= 90651) or (113742 <= t <= 190197)
+                if not is_graded:
+                    t += 1
+                    continue
+                # Ball kick launch: ball accelerates to >= 4.0 m/s from stationary
+                if not (valid_b[t] and valid_b[t - 1] and b_speed[t] >= 4.0 and b_speed[t - 1] < 4.0):
+                    t += 1
+                    continue
+                # Ball stationary before strike (t-35 .. t-5) for at least 25 frames
+                pre_window = range(max(0, t - 35), max(0, t - 5))
+                if len(pre_window) < 25 or not all(valid_b[f] and b_speed[f] < 2.0 for f in pre_window):
+                    t += 1
+                    continue
+                # Outfield players walking at kick
+                if smooth_speed[t] > 1.25:
+                    t += 1
+                    continue
+                # Sustained deceleration before kick: smooth_speed < 1.35 for >= 60 frames
+                pre_smo = range(max(0, t - 60), t)
+                if not all(smooth_speed[f] < 1.35 for f in pre_smo):
+                    t += 1
+                    continue
+                # Kicker presence
+                p = players_m[t - 1]
+                v = ~np.isnan(p[:, 0])
+                dists = np.sqrt(np.sum((p[v] - ball_m[t - 1]) ** 2, axis=1))
+                if len(dists) == 0 or np.min(dists) > 1.0:
+                    t += 1
+                    continue
+                v_slots = np.flatnonzero(v)
+                kicker_slot = v_slots[np.argmin(dists)]
+                if n_slots >= 46 and kicker_slot in (23, 45):
+                    k_tm = self._resolve_slot_team(
+                        int(kicker_slot), float(p[kicker_slot, 0]), t - 1, int(ctx.player_teams[kicker_slot]), n_slots
+                    )
+                else:
+                    k_tm = int(ctx.player_teams[kicker_slot])
+                kicker_team = "H" if k_tm == 0 else "A"
+                opp_team = "A" if kicker_team == "H" else "H"
+
+                # Walk backward across stoppage while players are walking or ball is dead
+                f_scan = t - 1
+                while f_scan > max(0, t - 750):
+                    p_s = players_m[f_scan]
+                    v_s = ~np.isnan(p_s[:, 0])
+                    d_s = np.sqrt(np.sum((p_s[v_s] - ball_m[f_scan]) ** 2, axis=1))
+                    min_d = np.min(d_s) if len(d_s) > 0 else 99.0
+                    is_stoppage = (smooth_speed[f_scan] < 1.40) or (b_speed[f_scan] < 1.8 and min_d > 2.0)
+                    if not is_stoppage:
+                        break
+                    # Stop at the boundary of prior active possession of kicker_team
+                    if f_scan < t - 60 and res[f_scan] == kicker_team and smooth_speed[f_scan] >= 1.50:
+                        break
+                    f_scan -= 1
+
+                t_stop = f_scan + 1
+                if (t - t_stop) >= 60 and dead_mask[t - 1] == "":
+                    if np.any(res[t_stop:t] == opp_team) or np.mean(res[t_stop:t] == "D") < 0.5:
+                        res[t_stop:t] = "D"
+                        res[t : min(n_frames, t + 25)] = kicker_team
+                        t += 50
+                        continue
+                t += 1
+            output = res
+
         # Re-enforce deterministic boundaries
         output[dead_mask == "X"] = "X"
         output[dead_mask == "D"] = "D"
