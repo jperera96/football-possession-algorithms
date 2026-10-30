@@ -149,5 +149,11 @@ class GoldenSpells(unittest.TestCase):
         self.assertTrue(np.all(self.preds[52220:52600] == "D"), "Out of bounds ball until free kick restart must be D")
 
 
+    def test_untagged_offside_free_kick_53263_to_54157(self):
+        self.assertTrue(np.all(self.preds[53200:53250] == "H"), "Barcelona possession before offside whistle must be H")
+        self.assertTrue(np.all(self.preds[53263:54150] == "D"), "Untagged offside stoppage must be dead ball D until goalkeeper serves")
+        self.assertTrue(np.all(self.preds[54165:54220] == "A"), "Athletic goalkeeper free kick launch must be A")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

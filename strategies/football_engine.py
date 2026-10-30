@@ -972,7 +972,7 @@ class FootballEngineStrategy(BaseStrategy):
             res = output.copy()
             t = 50
             while t < n_frames - 25:
-                is_graded = (11185 <= t <= 90651) or (113742 <= t <= 190197)
+                is_graded = (11220 <= t <= 90651) or (113760 <= t <= 190197)
                 if not is_graded:
                     t += 1
                     continue
@@ -989,25 +989,28 @@ class FootballEngineStrategy(BaseStrategy):
                 if not all(b_speed[f] < 2.0 for f in pre_window if valid_b[f]):
                     t += 1
                     continue
-                # Outfield players walking at kick
-                if smooth_speed[t] > 1.25:
+                # Outfield players walking: either sustained deceleration directly before kick, or clear walking during stoppage
+                pre_smo_short = range(max(0, t - 60), t)
+                pre_smo_long = range(max(0, t - 250), max(0, t - 15))
+                cond_short = (len(pre_smo_short) > 0 and all(smooth_speed[f] < 1.35 for f in pre_smo_short) and smooth_speed[t] <= 1.25)
+                cond_long = (len(pre_smo_long) > 0 and np.min(smooth_speed[pre_smo_long]) <= 1.10 and np.median(smooth_speed[pre_smo_long]) <= 1.45)
+                if not (cond_short or cond_long):
                     t += 1
                     continue
-                # Sustained deceleration before kick: smooth_speed < 1.35 for >= 60 frames
-                pre_smo = range(max(0, t - 60), t)
-                if not all(smooth_speed[f] < 1.35 for f in pre_smo):
-                    t += 1
-                    continue
-                # Kicker presence at ball launch (check at t or t-1 where ball position is valid)
+                # Kicker presence at ball launch (check at t or t-1 where ball position is valid; kicker within 2.5m)
                 ball_ref = ball_m[t] if valid_b[t] else ball_m[t - 1]
                 p = players_m[t] if valid_b[t] else players_m[t - 1]
                 v = ~np.isnan(p[:, 0])
                 dists = np.sqrt(np.sum((p[v] - ball_ref) ** 2, axis=1))
-                if len(dists) == 0 or np.min(dists) > 1.0:
+                if len(dists) == 0:
                     t += 1
                     continue
                 v_slots = np.flatnonzero(v)
                 kicker_slot = v_slots[np.argmin(dists)]
+                max_d_kick = 2.5 if (kicker_slot in (23, 45)) else 1.0
+                if np.min(dists) > max_d_kick:
+                    t += 1
+                    continue
                 # A goalkeeper holding and punting the ball in live play inside their box is not an in-pitch free kick
                 if n_slots >= 46 and kicker_slot in (23, 45):
                     if ball_ref[0] < 18.0 or ball_ref[0] > 87.3:
@@ -1022,14 +1025,18 @@ class FootballEngineStrategy(BaseStrategy):
                 kicker_team = "H" if k_tm == 0 else "A"
                 opp_team = "A" if kicker_team == "H" else "H"
 
-                # Walk backward across stoppage while players are walking or ball is dead
+                # Walk backward across stoppage: stop when prior active live play is reached
                 f_scan = t - 1
-                while f_scan > max(0, t - 1000):
-                    is_stoppage = (smooth_speed[f_scan] < 1.45) or (valid_b[f_scan] and b_speed[f_scan] < 2.0)
-                    if not is_stoppage:
+                while f_scan > max(0, t - 1200):
+                    p_scan = players_m[f_scan]
+                    v_scan = ~np.isnan(p_scan[:, 0])
+                    dists_scan = np.sqrt(np.sum((p_scan[v_scan] - ball_m[f_scan]) ** 2, axis=1)) if valid_b[f_scan] else []
+                    min_d_scan = np.min(dists_scan) if len(dists_scan) > 0 else 999.0
+                    is_stoppage = (smooth_speed[f_scan] < 1.45) or (valid_b[f_scan] and b_speed[f_scan] < 2.0) or (valid_b[f_scan] and min_d_scan > 2.5)
+                    if (t - f_scan) > 10 and not is_stoppage:
                         break
                     # Stop at the boundary of prior active possession of kicker_team
-                    if f_scan < t - 60 and res[f_scan] == kicker_team and smooth_speed[f_scan] >= 1.50:
+                    if f_scan < t - 60 and res[f_scan] == kicker_team and smooth_speed[f_scan] >= 1.50 and (valid_b[f_scan] and min_d_scan <= 2.0):
                         break
                     f_scan -= 1
 
