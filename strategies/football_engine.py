@@ -442,7 +442,7 @@ class FootballEngineStrategy(BaseStrategy):
         # Enforce deterministic boundaries
         output[dead_mask == "X"] = "X"
         output[dead_mask == "D"] = "D"
-
+        
         # 4. Kickoff long-ball flight & defensive quarter landing
         # Both H1 (Barca defends Left) and H2 (Athletic defends Left) have the non-kicking team defending (0.0, 26.25)
         if self.enable_kickoff_arrival and n_frames > 20000:
@@ -695,6 +695,121 @@ class FootballEngineStrategy(BaseStrategy):
                         res[start:end] = prev_val
             output = res
         
+        # 8. Unverified Camera-Occlusion 'D' Bridging (< min_unverified_dead frames where dead_mask is empty)
+        if self.min_unverified_dead is not None and self.min_unverified_dead > 0:
+            res = output.copy()
+            n = len(res)
+            i = 0
+            while i < n:
+                if res[i] != "D":
+                    i += 1
+                    continue
+                start = i
+                while i < n and res[i] == "D":
+                    i += 1
+                end = i
+                dur = end - start
+                prev_val = res[start - 1] if start > 0 else None
+                next_val = res[end] if end < n else None
+                if dur < self.min_unverified_dead and prev_val in ("H", "A") and next_val in ("H", "A"):
+                    if np.all(dead_mask[start:end] == ""):
+                        res[start:end] = next_val if dur < 50 else prev_val
+            output = res
+        
+        # 6e. Contested Duel / Incomplete Turnover Rejection:
+        # A defender challenging, deflecting, or contesting the ball during an ongoing attack does not constitute
+        # a turnover unless the defending team establishes controlled team possession. If an enclosed segment of the opposing
+        # team (35 <= dur < 100 frames, 1.4s to 4.0s) involves either only a single player (no pass to a teammate) or multiple
+        # defenders clustered inside their own defending box/quarter on a deflected scramble, makes no progression in their
+        # attacking direction (dx_att <= 0.0 or all defenders clustered in defending quarter), and the original attacking team
+        # regains clean uncontested control within 35 frames (1.4s), merge the contested duel/deflection back into the surrounding possession.
+        if self.enable_clearance_splits and ctx.player_teams is not None and n_frames > 100:
+            res = output.copy()
+            i = 0
+            while i < n_frames:
+                if res[i] not in ("H", "A"):
+                    i += 1
+                    continue
+                start, val = i, res[i]
+                while i < n_frames and res[i] == val:
+                    i += 1
+                end = i
+                dur = end - start
+                if 35 <= dur < 100:
+                    p_idx = start - 1
+                    while p_idx >= 0 and res[p_idx] == "D" and dead_mask[p_idx] == "" and (start - p_idx) <= 100:
+                        p_idx -= 1
+                    prev_val = res[p_idx] if p_idx >= 0 else None
+
+                    n_idx = end
+                    while n_idx < n_frames and res[n_idx] == "D" and dead_mask[n_idx] == "" and (n_idx - end) <= 100:
+                        n_idx += 1
+                    next_val = res[n_idx] if n_idx < n_frames else None
+
+                    if prev_val == next_val and prev_val in ("H", "A") and prev_val != val:
+                        inv_team = 0 if val == "H" else 1
+                        orig_team = 1 if val == "H" else 0
+
+                        if start <= 90651:
+                            att_dir = 1 if val == "H" else -1
+                            is_def_quarter = (lambda xp: xp < 30.0) if val == "H" else (lambda xp: xp > 75.0)
+                        elif start >= 110808:
+                            att_dir = -1 if val == "H" else 1
+                            is_def_quarter = (lambda xp: xp > 75.0) if val == "H" else (lambda xp: xp < 30.0)
+                        else:
+                            att_dir = 0
+                            is_def_quarter = lambda xp: False
+
+                        sub_valid = np.where(valid_b[max(0, start - 25) : end])[0]
+                        if len(sub_valid) >= 2:
+                            f_first = max(0, start - 25) + sub_valid[0]
+                            f_last = max(0, start - 25) + sub_valid[-1]
+                            dx = (ball_m[f_last, 0] - ball_m[f_first, 0]) * att_dir
+                        else:
+                            dx = 0.0
+
+                        slots_inv = set()
+                        slots_inv_pos = []
+                        for t in range(start, end):
+                            if not valid_b[t]:
+                                continue
+                            p = players_m[t]
+                            v = ~np.isnan(p[:, 0])
+                            v_slots = np.flatnonzero(v)
+                            dists = np.sqrt(np.sum((p[v] - ball_m[t]) ** 2, axis=1))
+                            tms = ctx.player_teams[v]
+                            inv_idx = np.where(tms == inv_team)[0]
+                            for s_idx in inv_idx:
+                                if dists[s_idx] <= 1.8:
+                                    s_id = v_slots[s_idx]
+                                    slots_inv.add(s_id)
+                                    slots_inv_pos.append(float(p[s_id, 0]))
+
+                        post_window = range(end, min(n_frames, end + 35))
+                        orig_clean_recovery = False
+                        for t in post_window:
+                            if not valid_b[t]:
+                                continue
+                            p = players_m[t]
+                            v = ~np.isnan(p[:, 0])
+                            dists = np.sqrt(np.sum((p[v] - ball_m[t]) ** 2, axis=1))
+                            tms = ctx.player_teams[v]
+                            orig_idx = np.where(tms == orig_team)[0]
+                            inv_idx = np.where(tms == inv_team)[0]
+                            d_orig = np.min(dists[orig_idx]) if len(orig_idx) > 0 else 99.0
+                            d_inv = np.min(dists[inv_idx]) if len(inv_idx) > 0 else 99.0
+                            if d_orig <= 1.5 and d_inv >= 3.0:
+                                orig_clean_recovery = True
+                                break
+
+                        def_cluster = len(slots_inv_pos) > 0 and all(is_def_quarter(x) for x in slots_inv_pos)
+                        no_progression = (dx <= 0.0) or def_cluster
+                        single_or_box_cluster = (len(slots_inv) <= 1) or def_cluster
+
+                        if single_or_box_cluster and no_progression and orig_clean_recovery:
+                            res[p_idx + 1 : n_idx] = prev_val
+            output = res
+
         # 7. Kinematic Pre-Dead Tackle Split & Spurious D->H/A->D Stoppage Blip Filter
         if self.max_pre_dead is not None and self.max_pre_dead > 0:
             res = output.copy()
@@ -721,101 +836,6 @@ class FootballEngineStrategy(BaseStrategy):
                         res[start:end] = "D"
             output = res
         
-        # 8. Unverified Camera-Occlusion 'D' Bridging (< min_unverified_dead frames where dead_mask is empty)
-        if self.min_unverified_dead is not None and self.min_unverified_dead > 0:
-            res = output.copy()
-            n = len(res)
-            i = 0
-            while i < n:
-                if res[i] != "D":
-                    i += 1
-                    continue
-                start = i
-                while i < n and res[i] == "D":
-                    i += 1
-                end = i
-                dur = end - start
-                prev_val = res[start - 1] if start > 0 else None
-                next_val = res[end] if end < n else None
-                if dur < self.min_unverified_dead and prev_val in ("H", "A") and next_val in ("H", "A"):
-                    if np.all(dead_mask[start:end] == ""):
-                        res[start:end] = next_val if dur < 50 else prev_val
-            output = res
-        
-        # 6e. Contested Duel / Incomplete Turnover Rejection:
-        # A defender challenging or contesting the ball during an ongoing attack does not constitute a turnover
-        # unless the defending team establishes controlled team possession. If an enclosed segment of the opposing
-        # team (35 <= dur < 100 frames, 1.4s to 4.0s) involves only a single player (no pass to a teammate),
-        # makes no progression in their attacking direction (dx_att <= 0.0), and the original attacking team regains
-        # clean uncontested control within 35 frames (1.4s), merge the contested duel back into the surrounding possession.
-        if self.enable_clearance_splits and ctx.player_teams is not None and n_frames > 100:
-            res = output.copy()
-            i = 0
-            while i < n_frames:
-                if res[i] not in ("H", "A"):
-                    i += 1
-                    continue
-                start, val = i, res[i]
-                while i < n_frames and res[i] == val:
-                    i += 1
-                end = i
-                prev_val = res[start - 1] if start > 0 else None
-                next_val = res[end] if end < n_frames else None
-                dur = end - start
-                if 35 <= dur < 100 and prev_val == next_val and prev_val in ("H", "A") and prev_val != val:
-                    inv_team = 0 if val == "H" else 1
-                    orig_team = 1 if val == "H" else 0
-
-                    if start <= 90651:
-                        att_dir = 1 if val == "H" else -1
-                    elif start >= 110808:
-                        att_dir = -1 if val == "H" else 1
-                    else:
-                        att_dir = 0
-
-                    sub_valid = np.where(valid_b[max(0, start - 25) : end])[0]
-                    if len(sub_valid) >= 2:
-                        f_first = max(0, start - 25) + sub_valid[0]
-                        f_last = max(0, start - 25) + sub_valid[-1]
-                        dx = (ball_m[f_last, 0] - ball_m[f_first, 0]) * att_dir
-                    else:
-                        dx = 0.0
-
-                    slots_inv = set()
-                    for t in range(start, end):
-                        if not valid_b[t]:
-                            continue
-                        p = players_m[t]
-                        v = ~np.isnan(p[:, 0])
-                        v_slots = np.flatnonzero(v)
-                        dists = np.sqrt(np.sum((p[v] - ball_m[t]) ** 2, axis=1))
-                        tms = ctx.player_teams[v]
-                        inv_idx = np.where(tms == inv_team)[0]
-                        for s_idx in inv_idx:
-                            if dists[s_idx] <= 1.8:
-                                slots_inv.add(v_slots[s_idx])
-
-                    post_window = range(end, min(n_frames, end + 35))
-                    orig_clean_recovery = False
-                    for t in post_window:
-                        if not valid_b[t]:
-                            continue
-                        p = players_m[t]
-                        v = ~np.isnan(p[:, 0])
-                        dists = np.sqrt(np.sum((p[v] - ball_m[t]) ** 2, axis=1))
-                        tms = ctx.player_teams[v]
-                        orig_idx = np.where(tms == orig_team)[0]
-                        inv_idx = np.where(tms == inv_team)[0]
-                        d_orig = np.min(dists[orig_idx]) if len(orig_idx) > 0 else 99.0
-                        d_inv = np.min(dists[inv_idx]) if len(inv_idx) > 0 else 99.0
-                        if d_orig <= 1.5 and d_inv >= 3.0:
-                            orig_clean_recovery = True
-                            break
-
-                    if len(slots_inv) <= 1 and dx <= 0.0 and orig_clean_recovery:
-                        res[start:end] = prev_val
-            output = res
-
         # 9. Untagged Restart Ball-Kick Backtracking (D -> H/A):
         # On untagged free kicks, offside restarts, and post-goal kickoffs, outfield players are often
         # stationary or walking (smooth_speed < restart_speed_gate = 1.2 m/s) at the moment the kicker

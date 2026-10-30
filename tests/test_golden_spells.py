@@ -136,5 +136,10 @@ class GoldenSpells(unittest.TestCase):
         self.assertTrue(np.all(self.preds[42749:42774] == "A"), "Athletic corner kick strike must be A")
 
 
+    def test_goal_deflection_and_strike_46535_to_46678(self):
+        self.assertTrue(np.all(self.preds[46535:46676] == "H"), "Barcelona attack and goal strike must be continuous H")
+        self.assertTrue(np.all(self.preds[46678:46750] == "D"), "Post-goal celebration must be D")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
