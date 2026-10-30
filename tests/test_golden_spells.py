@@ -127,7 +127,13 @@ class GoldenSpells(unittest.TestCase):
         self.assertTrue(np.all(self.preds[33204:33896] == "D"), "foul stoppage 33204..33896 must be 100% dead ball D without glitches")
         self.assertTrue(np.all(self.preds[33896:34040] == "H"), "Barcelona serves foul at 33896 and retains possession")
 
+    def test_contested_duel_deflection_39655(self):
+        self.assertTrue(np.all(self.preds[39650:39700] == "H"), "Barcelona possession at 39655 must not glitch to Athletic")
 
+    def test_corner_kick_shot_and_stoppage_41495_to_42749(self):
+        self.assertTrue(np.all(self.preds[41495:41650] == "A"), "Athletic dribble and shot into box must be A")
+        self.assertTrue(np.all(self.preds[41662:42749] == "D"), "Corner kick stoppage 41662..42749 must be 100% dead ball D without phantom pickups")
+        self.assertTrue(np.all(self.preds[42749:42774] == "A"), "Athletic corner kick strike must be A")
 
 
 if __name__ == "__main__":

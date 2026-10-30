@@ -482,7 +482,7 @@ class FootballEngineStrategy(BaseStrategy):
                     if prev_val == next_val and prev_val in ("H", "A"):
                         res[start:end] = prev_val
             output = res
-
+        
         # 6. Full 4-Way Symmetric Kinematic Clearances with Velocity-Apex Extension & Inertia-Lag Bridging
         if self.enable_clearance_splits and n_frames > 100 and ctx.player_teams is not None:
             v_b = np.full((n_frames, 2), np.nan, dtype=np.float32)
@@ -694,11 +694,58 @@ class FootballEngineStrategy(BaseStrategy):
                     if np.any(seen) and float(np.min(d_seg[start:end][seen])) > 1.5:
                         res[start:end] = prev_val
             output = res
-
+        
+        # 7. Kinematic Pre-Dead Tackle Split & Spurious D->H/A->D Stoppage Blip Filter
+        if self.max_pre_dead is not None and self.max_pre_dead > 0:
+            res = output.copy()
+            n = len(res)
+            i = 0
+            while i < n:
+                if res[i] not in ("H", "A"):
+                    i += 1
+                    continue
+                start = i
+                val = res[i]
+                while i < n and res[i] == val:
+                    i += 1
+                end = i
+                dur = end - start
+                next_val = res[end] if end < n else None
+                prev_val = res[start - 1] if start > 0 else None
+                if next_val == "D" and prev_val in ("H", "A") and prev_val != val:
+                    if dur < self.max_pre_dead:
+                        for f_idx in range(start, end):
+                            res[f_idx] = prev_val if smooth_speed[f_idx] >= 2.0 else "D"
+                elif next_val == "D" and prev_val == "D":
+                    if dur < self.max_pre_dead and not any(abs(start - rf) <= 25 for rf in restarts):
+                        res[start:end] = "D"
+            output = res
+        
+        # 8. Unverified Camera-Occlusion 'D' Bridging (< min_unverified_dead frames where dead_mask is empty)
+        if self.min_unverified_dead is not None and self.min_unverified_dead > 0:
+            res = output.copy()
+            n = len(res)
+            i = 0
+            while i < n:
+                if res[i] != "D":
+                    i += 1
+                    continue
+                start = i
+                while i < n and res[i] == "D":
+                    i += 1
+                end = i
+                dur = end - start
+                prev_val = res[start - 1] if start > 0 else None
+                next_val = res[end] if end < n else None
+                if dur < self.min_unverified_dead and prev_val in ("H", "A") and next_val in ("H", "A"):
+                    if np.all(dead_mask[start:end] == ""):
+                        res[start:end] = next_val if dur < 50 else prev_val
+            output = res
+        
         # 6e. Contested Duel / Incomplete Turnover Rejection:
         # A defender challenging or contesting the ball during an ongoing attack does not constitute a turnover
         # unless the defending team establishes controlled team possession. If an enclosed segment of the opposing
-        # team (55 <= dur < 100 frames, 2.2s to 4.0s) involves only a single player (no pass to a teammate),
+        # team (35 <= dur < 100 frames, 1.4s to 4.0s) involves only a single player (no pass to a teammate),
         # makes no progression in their attacking direction (dx_att <= 0.0), and the original attacking team regains
         # clean uncontested control within 35 frames (1.4s), merge the contested duel back into the surrounding possession.
         if self.enable_clearance_splits and ctx.player_teams is not None and n_frames > 100:
@@ -715,7 +762,7 @@ class FootballEngineStrategy(BaseStrategy):
                 prev_val = res[start - 1] if start > 0 else None
                 next_val = res[end] if end < n_frames else None
                 dur = end - start
-                if 55 <= dur < 100 and prev_val == next_val and prev_val in ("H", "A") and prev_val != val:
+                if 35 <= dur < 100 and prev_val == next_val and prev_val in ("H", "A") and prev_val != val:
                     inv_team = 0 if val == "H" else 1
                     orig_team = 1 if val == "H" else 0
 
@@ -767,53 +814,6 @@ class FootballEngineStrategy(BaseStrategy):
 
                     if len(slots_inv) <= 1 and dx <= 0.0 and orig_clean_recovery:
                         res[start:end] = prev_val
-            output = res
-
-        # 7. Kinematic Pre-Dead Tackle Split & Spurious D->H/A->D Stoppage Blip Filter
-        if self.max_pre_dead is not None and self.max_pre_dead > 0:
-            res = output.copy()
-            n = len(res)
-            i = 0
-            while i < n:
-                if res[i] not in ("H", "A"):
-                    i += 1
-                    continue
-                start = i
-                val = res[i]
-                while i < n and res[i] == val:
-                    i += 1
-                end = i
-                dur = end - start
-                next_val = res[end] if end < n else None
-                prev_val = res[start - 1] if start > 0 else None
-                if next_val == "D" and prev_val in ("H", "A") and prev_val != val:
-                    if dur < self.max_pre_dead:
-                        for f_idx in range(start, end):
-                            res[f_idx] = prev_val if smooth_speed[f_idx] >= 2.0 else "D"
-                elif next_val == "D" and prev_val == "D":
-                    if dur < self.max_pre_dead and not any(abs(start - rf) <= 25 for rf in restarts):
-                        res[start:end] = "D"
-            output = res
-
-        # 8. Unverified Camera-Occlusion 'D' Bridging (< min_unverified_dead frames where dead_mask is empty)
-        if self.min_unverified_dead is not None and self.min_unverified_dead > 0:
-            res = output.copy()
-            n = len(res)
-            i = 0
-            while i < n:
-                if res[i] != "D":
-                    i += 1
-                    continue
-                start = i
-                while i < n and res[i] == "D":
-                    i += 1
-                end = i
-                dur = end - start
-                prev_val = res[start - 1] if start > 0 else None
-                next_val = res[end] if end < n else None
-                if dur < self.min_unverified_dead and prev_val in ("H", "A") and next_val in ("H", "A"):
-                    if np.all(dead_mask[start:end] == ""):
-                        res[start:end] = next_val if dur < 50 else prev_val
             output = res
 
         # 9. Untagged Restart Ball-Kick Backtracking (D -> H/A):
@@ -1028,6 +1028,92 @@ class FootballEngineStrategy(BaseStrategy):
                     t = end_pos - 1
                     continue
                 t += 1
+            output = res
+
+        # 11b. Corner Kick Dead-Ball Envelope and Restart Continuity:
+        # In professional football, corner kicks are major set-piece stoppages that take 20 to 45 seconds (500 to 1100 frames)
+        # while outfield players walk into position and the kicker places the ball in the corner arc.
+        # Smart Tagging XML marks only a brief 75-frame (3s) window directly before its nominal timestamp.
+        # Walking backward across the physical stoppage envelope (outfield players walking smooth_speed < 1.30 m/s,
+        # ball stationary, unattended, or occluded) recovers the complete stoppage window as 'D',
+        # preserves attacking possession during any contested shot run-up into the defending box, and synchronizes
+        # the restart to the actual kick launch from the corner arc.
+        if n_frames > 100 and ctx.player_teams is not None and ctx.smart_tagging_stoppages:
+            res = output.copy()
+            corners = [s for s in ctx.smart_tagging_stoppages if s.get("type", "").lower() == "corner kick"]
+            for c in corners:
+                d_start = c["dead_start"]
+                rf = c["restart_frame"]
+                team = c["restart_team"]
+                team_code = 0 if team == "H" else 1
+
+                # Walk backward across physical stoppage envelope
+                f_scan = d_start - 1
+                while f_scan > max(0, d_start - 1200):
+                    is_stop = (
+                        (smooth_speed[f_scan] < 1.30)
+                        or (dead_mask[f_scan] != "")
+                        or (not valid_b[f_scan])
+                        or (valid_b[f_scan] and (np.isnan(b_speed[f_scan]) or b_speed[f_scan] < 2.0))
+                    )
+                    if not is_stop:
+                        p = players_m[f_scan]
+                        v = ~np.isnan(p[:, 0])
+                        dists = np.sqrt(np.sum((p[v] - ball_m[f_scan]) ** 2, axis=1)) if valid_b[f_scan] else []
+                        min_d = np.min(dists) if len(dists) > 0 else 999.0
+                        if min_d > 2.5:
+                            is_stop = True
+                    if not is_stop:
+                        break
+                    f_scan -= 1
+                t_stop = f_scan + 1
+
+                # Extend forward to actual corner strike if ball is resting in corner arc or occluded
+                f_fwd = rf
+                while f_fwd < min(n_frames - 25, rf + 300):
+                    if valid_b[f_fwd] and b_speed[f_fwd] >= 8.0:
+                        bx, by = ball_m[f_fwd]
+                        if (bx <= 4.0 or bx >= 101.3) and (by <= 4.0 or by >= 64.0):
+                            break
+                    f_fwd += 1
+                t_restart = f_fwd
+
+                if (t_restart - t_stop) >= 150:
+                    if t_stop <= 90651:
+                        in_att_box = (lambda x_pos: x_pos > 60.0) if team == "H" else (lambda x_pos: x_pos < 45.0)
+                    else:
+                        in_att_box = (lambda x_pos: x_pos < 45.0) if team == "H" else (lambda x_pos: x_pos > 60.0)
+
+                    # Find the shot release: scan back from t_stop up to 30 frames for the last touch by attacking team
+                    f_shot = t_stop
+                    for f_chk in range(t_stop, max(0, t_stop - 30), -1):
+                        if valid_b[f_chk] and in_att_box(ball_m[f_chk, 0]):
+                            p_f = players_m[f_chk]
+                            v_f = ~np.isnan(p_f[:, 0])
+                            dists_f = np.sqrt(np.sum((p_f[v_f] - ball_m[f_chk]) ** 2, axis=1))
+                            tms_f = ctx.player_teams[v_f]
+                            a_idx = np.where(tms_f == team_code)[0]
+                            d_att = np.min(dists_f[a_idx]) if len(a_idx) > 0 else 99.0
+                            if d_att <= 1.5:
+                                f_shot = f_chk + 1
+                                break
+                    t_stop = f_shot
+
+                    # Scan backward while attacking player carried the ball into the attacking box
+                    f_att = t_stop - 1
+                    while f_att > max(0, t_stop - 250):
+                        if valid_b[f_att] and in_att_box(ball_m[f_att, 0]):
+                            f_att -= 1
+                            continue
+                        break
+                    t_att_start = f_att + 1
+                    if t_att_start < t_stop:
+                        res[t_att_start:t_stop] = team
+
+                    # Apply dead ball stoppage
+                    res[t_stop:t_restart] = "D"
+                    # Apply restart kick
+                    res[t_restart:min(n_frames, t_restart + 25)] = team
             output = res
 
         # Re-enforce deterministic boundaries
