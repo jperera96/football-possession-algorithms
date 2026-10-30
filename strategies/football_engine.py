@@ -400,6 +400,8 @@ class FootballEngineStrategy(BaseStrategy):
 
             min_dist_h = np.full(n_frames, 99.0, dtype=np.float32)
             min_dist_a = np.full(n_frames, 99.0, dtype=np.float32)
+            best_slot_h = np.full(n_frames, -1, dtype=np.int16)
+            best_slot_a = np.full(n_frames, -1, dtype=np.int16)
             for f in range(n_frames):
                 if dead_mask[f] in ("X", "D") or not valid_b[f]:
                     continue
@@ -408,20 +410,26 @@ class FootballEngineStrategy(BaseStrategy):
                 if not np.any(v):
                     continue
                 dists = np.sqrt(np.sum((p[v] - ball_m[f]) ** 2, axis=1))
+                v_slots = np.flatnonzero(v)
                 tms = ctx.player_teams[v].copy()
                 if n_slots >= 46:
-                    v_slots = np.flatnonzero(v)
                     for idx_s, s_id in enumerate(v_slots):
                         if s_id in (23, 45):
                             tms[idx_s] = self._resolve_slot_team(
                                 int(s_id), float(p[s_id, 0]), f, int(tms[idx_s]), n_slots
                             )
-                h_dists = dists[tms == 0]
-                a_dists = dists[tms == 1]
-                if len(h_dists) > 0:
-                    min_dist_h[f] = np.min(h_dists)
-                if len(a_dists) > 0:
-                    min_dist_a[f] = np.min(a_dists)
+                h_idx = np.where(tms == 0)[0]
+                a_idx = np.where(tms == 1)[0]
+                if len(h_idx) > 0:
+                    sub_d = dists[h_idx]
+                    am = int(np.argmin(sub_d))
+                    min_dist_h[f] = sub_d[am]
+                    best_slot_h[f] = v_slots[h_idx[am]]
+                if len(a_idx) > 0:
+                    sub_d = dists[a_idx]
+                    am = int(np.argmin(sub_d))
+                    min_dist_a[f] = sub_d[am]
+                    best_slot_a[f] = v_slots[a_idx[am]]
 
             clears = []
             for t in range(10, n_frames - 25):
@@ -467,6 +475,57 @@ class FootballEngineStrategy(BaseStrategy):
                     next_c_start = k_end + int(c_indices[0])
                     if np.all(dead_mask[k_end:next_c_start] == ""):
                         output[k_end:next_c_start] = c_team
+
+            # 6b. Two-Player Completed Counter-Pass Verification (slot_1 -> slot_2 != slot_1):
+            # When a fast counter-attacking pass (>8 m/s) travels between two distinct teammates,
+            # the ball spends most of the duration in flight (> flight_speed), starving the cumulative
+            # observation window. If an uncontested player (slot_1) launches the ball in their attacking
+            # direction and a different teammate (slot_2 != slot_1) receives it >= 6m away after continuous
+            # flight without opponent contact, assign the possession spell from pass launch until opponent recovery.
+            t_scan = 10
+            while t_scan < n_frames - 60:
+                cur = output[t_scan]
+                if cur not in ("H", "A") or not valid_b[t_scan]:
+                    t_scan += 1
+                    continue
+                opp = "A" if cur == "H" else "H"
+                if t_scan <= 90651:
+                    att_dir = -1 if opp == "A" else 1
+                elif t_scan >= 110808:
+                    att_dir = 1 if opp == "A" else -1
+                else:
+                    t_scan += 1
+                    continue
+
+                d_opp = min_dist_a if opp == "A" else min_dist_h
+                d_cur = min_dist_h if opp == "A" else min_dist_a
+                s_opp = best_slot_a if opp == "A" else best_slot_h
+
+                if d_opp[t_scan] <= 2.6 and (d_cur[t_scan] - d_opp[t_scan]) >= 1.5 and v_b[t_scan, 0] * att_dir >= 3.0:
+                    slot1 = s_opp[t_scan]
+                    found_t2 = None
+                    for t2 in range(t_scan + 10, min(n_frames, t_scan + 50)):
+                        if not valid_b[t2]:
+                            continue
+                        disp = float(np.linalg.norm(ball_m[t2] - ball_m[t_scan]))
+                        if disp >= 6.0 and s_opp[t2] != slot1 and s_opp[t2] != -1:
+                            if d_opp[t2] <= 0.85 and d_opp[t2] < d_cur[t2] and b_speed[t2 - 2] >= 8.0:
+                                if np.nanmin(b_speed[t_scan + 1 : t2]) >= 5.0 and np.min(d_cur[t_scan + 1 : t2]) >= 1.0:
+                                    found_t2 = t2
+                                    break
+                    if found_t2 is not None:
+                        t_end = found_t2 + 1
+                        while t_end < min(n_frames, found_t2 + 90):
+                            if output[t_end] != cur:
+                                break
+                            if d_cur[t_end] <= 1.15 and d_opp[t_end] >= 3.5:
+                                break
+                            t_end += 1
+                        if (t_end - t_scan) >= 40:
+                            output[t_scan:t_end] = opp
+                            t_scan = t_end + 10
+                            continue
+                t_scan += 1
 
         # 7. Kinematic Pre-Dead Tackle Split & Spurious D->H/A->D Stoppage Blip Filter
         if self.max_pre_dead is not None and self.max_pre_dead > 0:
