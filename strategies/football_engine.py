@@ -1,25 +1,21 @@
-"""Strategy: Production Football Possession Engine (FootballEngineStrategy).
+"""Production Football Possession Engine (Modular Physical Architecture).
 
-An iterative, domain-native football possession inference model optimizing for spellF1:
-1. Kickoff & Restart Anchors:
-   - Match kickoff 1st half (frame 11185) -> Athletic Club ('A').
-   - Match kickoff 2nd half (frame 113742) -> Barcelona ('H').
-   - Immediately initializes active possession without window lag.
-2. Possession Inertia with Hysteresis Barrier:
-   - Maintains possession across passes in flight, deflections, and contested scrambles.
-   - A turnover only triggers when opponent cumulative evidence exceeds the possessor
-     by the turnover barrier delta: E_opp > E_poss + barrier.
-3. Kinematic & Out-of-Bounds Dead Ball Detection:
-   - Demarcates 2nd-half pre-kickoff (110808..113741 = 'D').
-   - Detects boundary line crossings (x, y outside pitch).
-   - Detects prolonged ball disappearance (> dead_window).
-4. Clean Abstentions:
-   - Pre-match (<11185), Halftime (90652..110807), and Post-match (>190197) -> 'X'.
+A unified, physically principled state machine that models ball possession
+as an inertia state with ballistic continuity, turnover hysteresis, and
+kinematic stoppage gating.
+
+Decoupled into 7 cohesive physical stages:
+1. Physical Kinematics & Tracking Preprocessing
+2. Stoppage & Set-Piece Prior Refinement
+3. Spatial Proximity & Evidence Accumulation
+4. Base Inertia State Machine
+5. Ballistic Trajectory & Turnover Alignment
+6. Physical Stoppage Envelopes & Set-Piece Continuity
+7. Physical Continuity & Boundary Enforcement
 """
 
 import numpy as np
 from strategies.base import BaseStrategy, TrackingContext
-
 
 class FootballEngineStrategy(BaseStrategy):
     """Production Football Possession Engine."""
@@ -100,12 +96,9 @@ class FootballEngineStrategy(BaseStrategy):
                 return 0 if px > 52.5 else 1
         return int(default_team)
 
-    def predict(self, ctx: TrackingContext) -> np.ndarray:
+    def _compute_kinematics(self, ctx: TrackingContext, scale: np.ndarray):
+        """Phase 1: Compute smoothed collective player median speed and 2D ball velocities."""
         n_frames = ctx.n_frames
-        output = np.full(n_frames, "X", dtype="<U1")
-        scale = np.array([ctx.pitch_dim[0], ctx.pitch_dim[1]], dtype=np.float32)
-
-        # 0. Compute smoothed collective player median speed for kinematic stoppage confirmation
         players_m = ctx.player_coords * scale
         n_slots = players_m.shape[1] if players_m.ndim == 3 else 0
         if n_frames > 1:
@@ -129,6 +122,23 @@ class FootballEngineStrategy(BaseStrategy):
         # 0c. Refine Smart Tagging stoppages & restarts:
         # - Recover consecutive set-piece intervals (< 33s apart) overwritten by 30s lookback bridging.
         # - For GOALS tags: preserve live attacking build-up before the post-goal celebration NaN stretch.
+        valid_b = ~np.isnan(ball_m[:, 0])
+        v_b = np.full((n_frames, 2), np.nan, dtype=np.float32)
+        for t in range(1, n_frames):
+            if valid_b[t] and valid_b[t - 1]:
+                v_b[t] = (ball_m[t] - ball_m[t - 1]) * 25.0
+        return players_m, ball_m, n_slots, valid_b, v_b, b_speed, smooth_speed
+    def _refine_smart_tagging_set_pieces(
+        self,
+        ctx: TrackingContext,
+        n_frames: int,
+        ball_m: np.ndarray,
+        players_m: np.ndarray,
+        valid_b: np.ndarray,
+        b_speed: np.ndarray,
+        smooth_speed: np.ndarray,
+    ):
+        """Phase 2: Synchronize Smart Tagging set pieces and goals with exact physical execution."""
         # - For SET PIECES tags: hold 'D' while the ball is NaN, out-of-bounds, or stationary (< 4.0 m/s) up to 320f.
         restarts = dict(ctx.restarts) if ctx.restarts else {}
         dead_mask = ctx.dead_ball_mask.copy()
@@ -313,6 +323,20 @@ class FootballEngineStrategy(BaseStrategy):
                     else:
                         effective_rfs[rf_orig] = rf
 
+        return restarts, dead_mask, effective_rfs, occluded_live_until
+    def _compute_spatial_evidence(
+        self,
+        ctx: TrackingContext,
+        n_frames: int,
+        ball_m: np.ndarray,
+        players_m: np.ndarray,
+        n_slots: int,
+        dead_mask: np.ndarray,
+        b_speed: np.ndarray,
+        effective_rfs: dict,
+        restarts: dict,
+    ):
+        """Phase 3: Compute spatial proximity to ball, goalkeeper identities, and evidence sums."""
         # 1. Compute frame-level nearest player codes within control radius (-1: None/Flight, 0: H, 1: A)
         raw_codes = np.full(n_frames, -1, dtype=np.int8)
         r_sq_base = (self.control_radius**2) if self.control_radius is not None else np.inf
@@ -373,6 +397,20 @@ class FootballEngineStrategy(BaseStrategy):
         d_high = np.minimum(n_frames, index + self.dead_window + 1)
         tot_seen = (home_cum[d_high] - home_cum[d_low]) + (away_cum[d_high] - away_cum[d_low])
 
+        return home_ev, away_ev, tot_seen
+    def _run_base_fsm(
+        self,
+        n_frames: int,
+        dead_mask: np.ndarray,
+        restarts: dict,
+        occluded_live_until: np.ndarray,
+        tot_seen: np.ndarray,
+        smooth_speed: np.ndarray,
+        home_ev: np.ndarray,
+        away_ev: np.ndarray,
+    ) -> np.ndarray:
+        """Phase 4: Core physical inertia state machine with turnover hysteresis barrier."""
+        output = np.full(n_frames, "X", dtype="<U1")
         # 3. State Machine execution
         current_state = None
         pending_restart_team = None
@@ -447,6 +485,22 @@ class FootballEngineStrategy(BaseStrategy):
         output[dead_mask == "X"] = "X"
         output[dead_mask == "D"] = "D"
         
+        return output
+    def _resolve_physical_turnovers(
+        self,
+        output: np.ndarray,
+        ctx: TrackingContext,
+        n_frames: int,
+        ball_m: np.ndarray,
+        players_m: np.ndarray,
+        dead_mask: np.ndarray,
+        b_speed: np.ndarray,
+        smooth_speed: np.ndarray,
+        restarts: dict,
+        occluded_live_until: np.ndarray,
+        n_slots: int,
+    ):
+        """Phase 5: Trajectory verification, contested deflections, clearances, and goalkeeper catches."""
         # 4. Kickoff long-ball flight & defensive quarter landing
         # Both H1 (Barca defends Left) and H2 (Athletic defends Left) have the non-kicking team defending (0.0, 26.25)
         if self.enable_kickoff_arrival and n_frames > 20000:
@@ -964,6 +1018,23 @@ class FootballEngineStrategy(BaseStrategy):
                     else:
                         f_scan += 1
 
+        return output, min_dist_h, min_dist_a
+    def _resolve_stoppage_envelopes(
+        self,
+        output: np.ndarray,
+        ctx: TrackingContext,
+        n_frames: int,
+        ball_m: np.ndarray,
+        players_m: np.ndarray,
+        dead_mask: np.ndarray,
+        smooth_speed: np.ndarray,
+        b_speed: np.ndarray,
+        min_dist_h: np.ndarray,
+        min_dist_a: np.ndarray,
+        n_slots: int,
+    ) -> np.ndarray:
+        """Phase 6: Untagged stationary free kicks and corner-kick collective deceleration envelopes."""
+        valid_b = ~np.isnan(ball_m[:, 0])
         # 11. Untagged In-Pitch Free-Kick Stoppage & Restart Detection:
         # In professional football, referee whistles for fouls and stoppages frequently occur in open pitch
         # without an out-of-bounds trigger or a Smart Tagging XML tag. The physical signature of an in-pitch
@@ -1163,6 +1234,14 @@ class FootballEngineStrategy(BaseStrategy):
                     res[t_restart:min(n_frames, t_restart + 25)] = team
             output = res
 
+        return output
+    def _apply_continuity_filter(
+        self,
+        output: np.ndarray,
+        n_frames: int,
+        dead_mask: np.ndarray,
+    ) -> np.ndarray:
+        """Phase 7: Possession continuity, micro-flicker elimination, and boundary enforcement."""
         # 12. Physical Possession Continuity & Micro-Flicker Filter:
         # (a) No team establishes controlled possession for < min_flicker_len (15f / 0.6s):
         # A momentary opponent blip surrounded by the same team (H -> A -> H or A -> H -> A)
@@ -1213,6 +1292,45 @@ class FootballEngineStrategy(BaseStrategy):
 
         return output
 
+        return output
+    def predict(self, ctx: TrackingContext) -> np.ndarray:
+        n_frames = ctx.n_frames
+        scale = np.array([ctx.pitch_dim[0], ctx.pitch_dim[1]], dtype=np.float32)
+
+        # 1. Physical Kinematics & Preprocessing
+        players_m, ball_m, n_slots, valid_b, v_b, b_speed, smooth_speed = self._compute_kinematics(ctx, scale)
+
+        # 2. Set-Piece & Stoppage Prior Refinement
+        restarts, dead_mask, effective_rfs, occluded_live_until = self._refine_smart_tagging_set_pieces(
+            ctx, n_frames, ball_m, players_m, valid_b, b_speed, smooth_speed
+        )
+
+        # 3. Spatial Proximity & Evidence Accumulation
+        home_ev, away_ev, tot_seen = self._compute_spatial_evidence(
+            ctx, n_frames, ball_m, players_m, n_slots, dead_mask, b_speed, effective_rfs, restarts
+        )
+
+        # 4. Base Inertia State Machine
+        output = self._run_base_fsm(
+            n_frames, dead_mask, restarts, occluded_live_until, tot_seen, smooth_speed, home_ev, away_ev
+        )
+
+        # 5. Trajectory Verification & Turnover Resolution
+        output, min_dist_h, min_dist_a = self._resolve_physical_turnovers(
+            output, ctx, n_frames, ball_m, players_m, dead_mask, b_speed, smooth_speed,
+            restarts, occluded_live_until, n_slots
+        )
+
+        # 6. Physical Stoppage Envelopes & Set-Piece Continuity
+        output = self._resolve_stoppage_envelopes(
+            output, ctx, n_frames, ball_m, players_m, dead_mask, smooth_speed, b_speed,
+            min_dist_h, min_dist_a, n_slots
+        )
+
+        # 7. Physical Continuity & Boundary Enforcement
+        output = self._apply_continuity_filter(output, n_frames, dead_mask)
+
+        return output
     def test_synthetic(self) -> bool:
         n = 100
         ball = np.ones((n, 2)) * 0.5
