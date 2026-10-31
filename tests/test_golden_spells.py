@@ -157,6 +157,13 @@ class GoldenSpells(unittest.TestCase):
     def test_continuous_barcelona_passing_spell_55031(self):
         self.assertTrue(np.all(self.preds[54950:55255] == "H"), "Live Barcelona passing sequence 54950..55255 must be continuous H without spurious dead ball")
 
+    def test_barcelona_attacker_dribble_69553_to_69744(self):
+        # Frame 69553: Barcelona attacker s10 dropped out at 69473 and was tracked under slot 40
+        # while sprinting 45m into the box with the ball, merging back to s10 at 69617.
+        # Possession must remain continuous Barcelona 'H' until the dead ball at 69744.
+        self.assertTrue(np.all(self.preds[69500:69744] == "H"), "Barcelona attack into box must be continuous H until dead ball")
+        self.assertTrue(np.all(self.preds[69744:69800] == "D"), "Stoppage after ball leaves play must be D")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -342,6 +342,38 @@ class FootballEngineStrategy(BaseStrategy):
         r_sq_base = (self.control_radius**2) if self.control_radius is not None else np.inf
         r_sq_flight = (self.flight_radius**2) if self.flight_radius is not None else r_sq_base
 
+        # Dynamic optical tracklet swap disambiguation:
+        # In optical 2D tracking, crossing players frequently swap tracklet slots. Detect when an outfield tracklet
+        # s1 (team T1) drops out within <= 2.2m of opposite slot s2 (team T2), s2 controls the ball in team T1's
+        # attacking direction (dx_att >= 5.0m), and s1 reappears within <= 0.5m of s2.
+        slot_swap_team = {}
+        for s1 in range(n_slots):
+            t1 = int(ctx.player_teams[s1])
+            valid1 = ~np.isnan(players_m[:, s1, 0])
+            dropouts = np.flatnonzero(valid1[:-1] & ~valid1[1:])
+            for d in dropouts:
+                reappear = np.flatnonzero(valid1[d + 1 : min(n_frames, d + 350)])
+                if len(reappear) == 0:
+                    continue
+                r = d + 1 + int(reappear[0])
+                for s2 in range(n_slots):
+                    if int(ctx.player_teams[s2]) != t1 and s2 not in (23, 45):
+                        if valid1[d] and ~np.isnan(players_m[d, s2, 0]) and valid1[r] and ~np.isnan(players_m[r, s2, 0]):
+                            dist_d = float(np.linalg.norm(players_m[d, s1] - players_m[d, s2]))
+                            dist_r = float(np.linalg.norm(players_m[r, s1] - players_m[r, s2]))
+                            if dist_d <= 2.2 and dist_r <= 0.5:
+                                valid_b = ~np.isnan(ball_m[d:r, 0])
+                                if np.sum(valid_b) >= 15:
+                                    d_b = np.sqrt(np.sum((players_m[d:r, s2] - ball_m[d:r])**2, axis=1))
+                                    if np.sum(d_b[valid_b] <= 2.0) >= 15:
+                                        h1 = d <= 90651
+                                        att_dir = 1.0 if (t1 == 0 and h1) or (t1 == 1 and not h1) else -1.0
+                                        bx = ball_m[d:r, 0][valid_b]
+                                        dx_att = float(bx[-1] - bx[0]) * att_dir
+                                        if dx_att >= 5.0:
+                                            for f_sw in range(d, r):
+                                                slot_swap_team[(f_sw, s2)] = t1
+
         for f in range(n_frames):
             if dead_mask[f] in ("X", "D"):
                 continue
@@ -364,8 +396,9 @@ class FootballEngineStrategy(BaseStrategy):
             r_sq = r_sq_flight if (self.flight_speed is not None and b_speed[f] > self.flight_speed) else r_sq_base
             if sq_dists[min_idx] <= r_sq:
                 slot = int(np.flatnonzero(valid_p)[min_idx])
+                slot_tm = slot_swap_team.get((f, slot), int(ctx.player_teams[slot]))
                 raw_codes[f] = self._resolve_slot_team(
-                    slot, float(p_m[slot, 0]), f, int(ctx.player_teams[slot]), n_slots
+                    slot, float(p_m[slot, 0]), f, slot_tm, n_slots
                 )
 
         # 2. Cumulative observation evidence
