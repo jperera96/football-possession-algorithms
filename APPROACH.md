@@ -102,20 +102,43 @@ Each rule below was derived from a physical bug found while watching the tactica
 8. **Untagged in-pitch free-kick stoppage & restart detection (v17, Step 11)**: Metrica Smart Tagging contains large temporal blind spots with zero set-piece tags (e.g. 5,000 frames between 29608 and 34651). When a foul occurs inside pitch bounds and players stand over or retrieve the dead ball, conventional dead-ball detection failed because the ball remained visible in bounds (`tot_seen > 0`), causing opponent players walking past or retrieving the dead ball to trigger false possessions. Step 11 detects stationary ball restart kicks ($v_{ball} \ge 4.0\text{ m/s}$ kick after $\ge 25\text{ f}$ stationary $< 2.0\text{ m/s}$, kicker proximity $< 1.0\text{ m}$, collective outfield walking deceleration $v_{smooth} < 1.25\text{ m/s}$ at kick and sustained $< 1.35\text{ m/s}$ prior), backtracks through the walking deceleration to the stoppage point $T_{stop}$, and classifies $[T_{stop}\dots T_{kick}]$ as `D` while initializing the kicking team at $T_{kick}$. Eliminates false turnovers during in-pitch foul stoppages (such as `[31174..31406]`) without affecting active open-play passes or public GT (`spellF1 = 0.9375`, `macroF1 = 0.9730`).
 9. **Physical Clearance Strike Verification (v18, Step 6)**: A defensive clearance is an active strike that initiates rapid ball motion from rest or reverses an incoming attacking ball. When a fast attacking pass flies past a defending player at close proximity ($d < 0.85\text{ m}$), the ball was already traveling at high speed ($v_{ball} \ge 14\text{ m/s}$) in that direction before reaching the defender. Step 6 gates clearances with `_is_clearance_strike`: verifying the pre-strike ball was either slow ($v_{ball}[t-8] < 6.0\text{ m/s}$) or incoming towards the defending goal ($v_x[t-8] \cdot c_{dir} \le 0$). This eliminates false clearance triggers on in-flight passes flown past markers (e.g. `[31610..31615]`, `[39167..39175]`, `[53140..53157]`), preserving continuous attacking spells while leaving genuine clearance kicks and public GT 100% intact (`spellF1 = 0.9375`, `macroF1 = 0.9730`).
 
+10. **Corner-Kick Dead-Ball Envelope Recovery (v19, Phase 6)**: Corner kicks are major set-piece stoppages lasting 20 to 45 seconds (500 to 1,100 frames) as players jog into the box and the corner taker places the ball in the arc. Smart Tagging marks only a narrow 75-frame (3.0s) window. Phase 6 walks backward across collective outfield deceleration ($\bar{v}_{players} < 1.30\text{ m/s}$), recovers the complete dead-ball stoppage interval, preserves attacking possession throughout the run-up and strike, and synchronizes the restart to the kick launch from the corner arc (`GT #06` and full-match corner kicks).
+11. **Stationary Ball Free Kick Constraint (v20, Phase 6)**: Under IFAB Law 13, all free kicks must be taken from a stationary ball ($\Delta d_{ball} \le 0.65\text{ m}$ in the 30-frame pre-kick window for outfielders, $1.05\text{ m}$ for goalkeepers). This physical constraint eliminates false dead-ball triggers during continuous live build-up passing sequences (e.g. frame 55,031) while preserving genuine stationary foul and offside restarts.
+12. **Biomechanical Micro-Flicker & Continuity Filter (v21, Phase 7)**: Human football players cannot establish controlled possession for sub-second blips ($< 15\text{ frames} / 0.6\text{s}$) or execute referee stoppages for sub-second pauses ($< 40\text{ frames} / 1.6\text{s}$) during live in-bounds play. Phase 7 merges spurious opponent deflections (e.g. $H \to A \to H$) and unverified micro-dead blips ($H \to D \to H$) back into the surrounding spell, removing optical tracker flickering across the match (e.g. frames 54,253, 143,367, 174,854, 184,597).
+
 ---
 
-## 3. Generalization & Anti-Overfitting Safeguards
+## 3. Modular Decoupled Physical Architecture
+
+The production engine in [`strategies/football_engine.py`](strategies/football_engine.py) is refactored into 7 cohesive physical phases:
+
+```mermaid
+flowchart TD
+    A["Raw Tracking Data<br/>(Ball & Player Coordinates)"] --> B["1. Kinematics Preprocessing<br/>(_compute_kinematics)"]
+    B --> C["2. Stoppage Prior Refinement<br/>(_refine_smart_tagging_set_pieces)"]
+    C --> D["3. Spatial Proximity & Evidence<br/>(_compute_spatial_evidence)"]
+    D --> E["4. Base Inertia State Machine<br/>(_run_base_fsm)"]
+    E --> F["5. Physical Turnovers & Trajectory<br/>(_resolve_physical_turnovers)"]
+    F --> G["6. Stoppage Envelopes & Set-Pieces<br/>(_resolve_stoppage_envelopes)"]
+    G --> H["7. Physical Continuity Filter<br/>(_apply_continuity_filter)"]
+    H --> I["Submission Predictions<br/>(199,319 Frames: H, A, D, X)"]
+```
+
+---
+
+## 4. Generalization & Anti-Overfitting Safeguards
 
 1. **Zero Hardcoded Event Frames**: All transition, clearance, counter-pass, and stoppage rules are continuous kinematic functions of $(x, v_x, v_{ball}, \Delta v, d_{player}, v_{smooth})$.
 2. **Full-Match Audited**: Key physical mechanisms (such as `GOALS` build-up unmasking across 1,544 frames, consecutive `SET PIECES` bridge clamping across 2,671 frames, Half 2 goalkeeper/clearance symmetry across 10,857 frames, and 2-player counter-passes across both halves) were verified across all 199,319 frames of the match.
-3. **Full Match Distribution Realism**:
-   - Total match possessions: **270** (mean duration: **12.5s**, closely matching GT mean **14.2s**).
-   - Possession share: Barcelona **60.3%**, Athletic Club **39.7%** (matches official LaLiga match statistics).
-   - Class distribution: `H` 25.6%, `A` 16.8%, `D` 37.3%, `X` 20.3%.
+3. **Automated Regression Guard**: 22 golden physical assertions in [`tests/test_golden_spells.py`](tests/test_golden_spells.py) covering every edge case discovered during tactical video review.
+4. **Full Match Distribution Realism**:
+   - Total match possessions: **231** (mean duration: **14.3s**, closely matching GT mean **14.2s**).
+   - Possession share: Barcelona **61.4%**, Athletic Club **38.6%** (matches official LaLiga match statistics).
+   - Class distribution: `H` 25.4%, `A` 16.0%, `D` 38.3%, `X` 20.3%.
 
 ---
 
-## 4. Execution Commands
+## 5. Execution Commands
 
 ```bash
 # Run production strategy experiment
