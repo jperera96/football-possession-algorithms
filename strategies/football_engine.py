@@ -574,6 +574,8 @@ class FootballEngineStrategy(BaseStrategy):
                         res[start:end] = prev_val
             output = res
         
+        min_dist_h = np.full(n_frames, 99.0, dtype=np.float32)
+        min_dist_a = np.full(n_frames, 99.0, dtype=np.float32)
         # 6. Full 4-Way Symmetric Kinematic Clearances with Velocity-Apex Extension & Inertia-Lag Bridging
         if self.enable_clearance_splits and n_frames > 100 and ctx.player_teams is not None:
             v_b = np.full((n_frames, 2), np.nan, dtype=np.float32)
