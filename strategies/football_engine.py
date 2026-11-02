@@ -973,17 +973,17 @@ class FootballEngineStrategy(BaseStrategy):
                             f_scan += 1
                         e_nan = f_scan
                         dur = e_nan - s_nan
-                        if 40 <= dur <= 350 and s_nan > 11185 and e_nan < min(n_frames, 190197):
+                        if 40 <= dur <= 650 and s_nan > 11185 and e_nan < min(n_frames, 190197):
                             if np.all(dead_mask[s_nan:e_nan] == ""):
                                 bx_pre, by_pre = ball_m[s_nan - 1, 0], ball_m[s_nan - 1, 1]
                                 bx_post, by_post = ball_m[e_nan, 0], ball_m[e_nan, 1]
                                 in_left_box = (
-                                    (0.0 <= bx_pre <= 18.0)
+                                    (0.0 <= bx_pre <= 20.0)
                                     and (13.0 <= by_pre <= 55.0)
                                     and (0.0 <= bx_post <= 25.0)
                                 )
                                 in_right_box = (
-                                    (87.0 <= bx_pre <= 105.0)
+                                    (85.0 <= bx_pre <= 105.0)
                                     and (13.0 <= by_pre <= 55.0)
                                     and (80.0 <= bx_post <= 105.0)
                                 )
@@ -995,17 +995,24 @@ class FootballEngineStrategy(BaseStrategy):
                                     )
                                     d_def = min_dist_h if def_team == "H" else min_dist_a
                                     d_att = min_dist_a if def_team == "H" else min_dist_h
-                                    d_def_pre = float(np.min(d_def[max(0, s_nan - 8) : s_nan]))
-                                    d_att_pre = float(np.min(d_att[max(0, s_nan - 5) : s_nan]))
+
+                                    pre_w = range(max(0, s_nan - 35), s_nan)
+                                    if len(pre_w) > 0:
+                                        best_pre_idx = max(0, s_nan - 35) + int(np.argmin(d_def[pre_w]))
+                                        d_def_catch = float(d_def[best_pre_idx])
+                                        d_att_catch = float(d_att[best_pre_idx])
+                                    else:
+                                        d_def_catch = 99.0
+                                        d_att_catch = 99.0
+
                                     d_def_post = float(np.min(d_def[e_nan : min(n_frames, e_nan + 10)]))
                                     d_att_post = float(np.min(d_att[e_nan : min(n_frames, e_nan + 10)]))
-                                    # (b) Shot into the box that the tracker loses on its way to the keeper:
-                                    # the ball was last seen inside the defending box travelling toward its
-                                    # goal line, no attacker was near it (not a dribble/touch), the NaN
-                                    # follows and the ball re-emerges uncontested with the defending team.
+
                                     goal_dir = -1.0 if in_left_box else 1.0
                                     k0 = max(0, s_nan - 6)
                                     toward_goal = (ball_m[s_nan - 1, 0] - ball_m[k0, 0]) * goal_dir >= 1.0
+                                    d_att_pre = float(np.min(d_att[max(0, s_nan - 5) : s_nan]))
+                                    d_def_pre = float(np.min(d_def[max(0, s_nan - 8) : s_nan]))
                                     shot_lost = (
                                         toward_goal
                                         and b_speed[s_nan - 1] >= 5.0
@@ -1013,22 +1020,26 @@ class FootballEngineStrategy(BaseStrategy):
                                         and d_def_post <= 1.65
                                         and d_att_post >= 3.5
                                     )
-                                    if (
-                                        d_def_pre <= 1.65
-                                        and d_att_pre >= 3.0
+                                    gk_caught = (
+                                        d_def_catch <= 1.5
+                                        and (d_att_catch - d_def_catch) >= 0.5
                                         and d_def_post <= 1.65
                                         and d_att_post >= 3.5
-                                    ) or shot_lost:
+                                    )
+                                    if gk_caught or shot_lost:
                                         catch_f = s_nan - 1
                                         while (
-                                            catch_f > s_nan - 25
+                                            catch_f > s_nan - 35
                                             and valid_b_arr[catch_f - 1]
-                                            and d_def[catch_f - 1] <= 2.2
-                                            and d_def[catch_f - 1] < d_att[catch_f - 1]
+                                            and d_def[catch_f - 1] <= 1.8
+                                            and (
+                                                d_def[catch_f - 1] < d_att[catch_f - 1]
+                                                or (b_speed[catch_f - 1] <= 3.8 and d_att[catch_f - 1] >= 1.6)
+                                            )
                                         ):
                                             catch_f -= 1
                                         post_live_idx = np.flatnonzero(
-                                            output[e_nan : min(n_frames, e_nan + 60)] == def_team
+                                            output[e_nan : min(n_frames, e_nan + 150)] == def_team
                                         )
                                         att_team = "A" if def_team == "H" else "H"
                                         if shot_lost and d_def_pre > 1.65:
@@ -1045,9 +1056,10 @@ class FootballEngineStrategy(BaseStrategy):
                                             if output[f_b] == att_team and f_b < s_nan - 1:
                                                 output[f_b + 1 : s_nan] = att_team
                                             catch_f = s_nan
-                                        if output[catch_f - 1] in ("H", "A") and len(post_live_idx) > 0:
+                                        if len(post_live_idx) > 0:
                                             end_bridge = e_nan + int(post_live_idx[0])
-                                            output[catch_f:end_bridge] = def_team
+                                            if np.all(dead_mask[e_nan:end_bridge] == ""):
+                                                output[catch_f:end_bridge] = def_team
                     else:
                         f_scan += 1
 

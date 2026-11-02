@@ -131,8 +131,9 @@ flowchart TD
 
 1. **Zero Hardcoded Event Frames**: All transition, clearance, counter-pass, and stoppage rules are continuous kinematic functions of $(x, v_x, v_{ball}, \Delta v, d_{player}, v_{smooth})$.
 2. **Full-Match Audited**: Key physical mechanisms (such as `GOALS` build-up unmasking across 1,544 frames, consecutive `SET PIECES` bridge clamping across 2,671 frames, Half 2 goalkeeper/clearance symmetry across 10,857 frames, and 2-player counter-passes across both halves) were verified across all 199,319 frames of the match.
-3. **Automated Regression Guard**: 23 golden physical assertions in [`tests/test_golden_spells.py`](tests/test_golden_spells.py) covering every edge case discovered during tactical video review.
-4. **Full Match Distribution Realism**:
+3. **Automated Regression Guard**: 24 golden physical assertions in [`tests/test_golden_spells.py`](tests/test_golden_spells.py) covering every edge case discovered during tactical video review.
+4. **Goalkeeper Hand-Held Possession Continuity**: Goalkeeper catches in the penalty box hold the live ball under Law 12 across occlusions and run-up preparation for up to 26 seconds before distribution, preventing false dead-ball splits.
+5. **Full Match Distribution Realism**:
    - Total match possessions: **231** (mean duration: **14.3s**, closely matching GT mean **14.2s**).
    - Possession share: Barcelona **61.4%**, Athletic Club **38.6%** (matches official LaLiga match statistics).
    - Class distribution: `H` 25.4%, `A` 16.0%, `D` 38.3%, `X` 20.3%.

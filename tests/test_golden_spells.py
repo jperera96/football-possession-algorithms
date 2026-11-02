@@ -165,5 +165,12 @@ class GoldenSpells(unittest.TestCase):
         self.assertTrue(np.all(self.preds[69744:69800] == "D"), "Stoppage after ball leaves play must be D")
 
 
+    def test_athletic_goalkeeper_catch_and_service_82228(self):
+        # Frame 82228: Athletic goalkeeper collects the ball in the penalty box and holds it
+        # while walking and looking upfield until serving/punting at 82913.
+        # Possession must remain continuous Athletic 'A' (not dead ball) throughout the hold and punt.
+        self.assertTrue(np.all(self.preds[82228:82915] == "A"), "Athletic goalkeeper holding and serving the ball must be continuous A, not dead ball")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
