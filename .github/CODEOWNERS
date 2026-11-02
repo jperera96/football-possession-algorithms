@@ -1,0 +1,30 @@
+# PROPOSED code ownership — confirm with the team before enabling
+# "Require review from Code Owners" in branch protection (see docs/OPEN_SPEC_WORKFLOW.md §7).
+# Owners are the repository collaborators verified on 2026-10-30: jperera96 (admin),
+# raulrn22 (write), crafegas96 (write). Later rules override earlier ones.
+
+# Default: any collaborator may review.
+*                               @jperera96 @raulrn22 @crafegas96
+
+# Possession engine and experiment tooling.
+/strategies/                    @jperera96 @raulrn22 @crafegas96
+/pipeline/                      @jperera96 @raulrn22 @crafegas96
+/run_experiment.py              @jperera96 @raulrn22 @crafegas96
+
+# Governance: specifications, workflow, agent instructions, CI and checks.
+/openspec/                      @jperera96 @raulrn22
+/.github/                       @jperera96 @raulrn22
+/.github/CODEOWNERS             @jperera96
+/AGENTS.md                      @jperera96 @raulrn22
+/CLAUDE.md                      @jperera96 @raulrn22
+/.claude/                       @jperera96 @raulrn22
+/.agents/                       @jperera96 @raulrn22
+/tools/governance/              @jperera96 @raulrn22
+/tests/governance/              @jperera96 @raulrn22
+/docs/OPEN_SPEC_WORKFLOW.md     @jperera96 @raulrn22
+/.gitignore                     @jperera96 @raulrn22
+/.pre-commit-config.yaml        @jperera96 @raulrn22
+
+# Official competition assets: scorer, baseline and public ground truth (must stay unmodified).
+/evaluation/                    @jperera96
+/starter/                       @jperera96

@@ -4,6 +4,12 @@ Welcome to the team! This repository contains the ball possession inference pipe
 
 This guide walks you through setting up your environment, understanding the architecture, testing strategies, and contributing new models.
 
+> [!IMPORTANT]
+> **Every change needs an approved OpenSpec change before implementation** — no exceptions for
+> small fixes, docs, tests, dependencies or CI. Read [`AGENTS.md` §0](AGENTS.md) (policy) and
+> [`docs/OPEN_SPEC_WORKFLOW.md`](docs/OPEN_SPEC_WORKFLOW.md) (procedure) first. The CI check
+> `openspec-governance` rejects pull requests that do not follow it.
+
 ---
 
 ## 1. The Challenge at a Glance

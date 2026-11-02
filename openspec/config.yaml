@@ -1,0 +1,55 @@
+schema: pulse-governed
+
+# Project context shown to AI assistants when they create OpenSpec artifacts.
+# The canonical human-readable policy is AGENTS.md; the procedure is docs/OPEN_SPEC_WORKFLOW.md.
+context: |
+  Project: football possession inference for More Than A Hack 2027, Phase 1 (match BAR-ATH).
+  Output: a CSV `frame,label` with exactly 199,319 rows (frames 0..199318), labels H/A/D/X.
+  Primary metric: spellF1 (possession spells matched by temporal IoU 0.3-0.7); macroF1 is the
+  tie-breaker. Fragmentation hurts spellF1 more than frame errors.
+  Code: Python 3.11, numpy, pandas. strategies/ (BaseStrategy implementations, production
+  engine strategies/football_engine.py), pipeline/ (dead ball, evidence, ball interpolation),
+  run_experiment.py, evaluation/ (official scorer, do not modify), starter/ (official baseline).
+  Target architecture: PULSE (Possession Understanding through Latent State Estimation), a
+  proposed evolution of the existing engine. PULSE modules are NOT implemented unless a spec
+  in openspec/specs/ says so.
+
+  Governance (mandatory): no approved OpenSpec change, no implementation. A change is approved
+  only when its planning artifacts are merged into the protected `main` branch through a
+  human-reviewed specification PR. Agents never approve their own specifications.
+
+  Competition compliance (mandatory): the public 5-minute ground truth is for pipeline sanity
+  checks only, never for training, tuning, selecting algorithms or windows, or fixing specific
+  spells. No hardcoded frames, spells, teams or sides of the competition match. No human-made
+  event/possession data about the competition match. Labels must be produced algorithmically
+  and reproducibly from a clean environment. Private assets (videos, ATD, homography, Smart
+  Tagging, derived caches/predictions/logs) must never be read into or sent to cloud-hosted
+  models, committed, or printed in artifacts.
+
+rules:
+  proposal:
+    - Fill every template section; "None" requires a reason.
+    - State `Type: algorithm` for anything that can change submitted labels and answer the full Algorithm Review.
+    - Never cite public 5-minute ground-truth scores as evidence of full-match performance.
+    - Set affected_areas in .openspec.yaml to the narrowest path globs the implementation needs.
+  specs:
+    - Describe observable behaviour and data contracts only; label unverified existing behaviour as such.
+    - Never encode competition-match frame numbers, spells, teams or sides as requirements.
+  design:
+    - Mandatory for every change; concise is fine, omitted is not.
+    - Address determinism, cache invalidation and confidentiality explicitly.
+  tasks:
+    - Every task lists Depends on, Files, Requirements, Verification and Done when.
+    - Tasks are checked only after their verification actually ran and passed.
+
+operations:
+  apply:
+    guidance:
+      - Refuse to implement unless the change's planning already exists on origin/main.
+      - Touch only files matched by affected_areas; stop and propose a spec amendment otherwise.
+      - Record real evidence in verification.md; never invent test results.
+      - Do not read, print or upload private competition assets; do not run scripts that load them.
+  archive:
+    guidance:
+      - Archive only when every task is checked and verification.md says Status COMPLETE.
+      - Archive in the implementation PR so the governance checker can compare against the approved planning.
