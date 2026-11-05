@@ -1,0 +1,35 @@
+schema: pulse-governed
+created: 2026-11-05
+goal: Specify PULSE, a compliant, reproducible evolution of the possession engine
+affected_areas:
+  - .agents/skills/possession-pipeline/**
+  - .github/workflows/ci.yml
+  - AGENTS.md
+  - APPROACH.md
+  - DEVELOPING.md
+  - config/**
+  - docs/pulse/**
+  - experiments/README.md
+  - games.py
+  - make_submission.py
+  - pipeline/**
+  - pyproject.toml
+  - requirements.txt
+  - run_experiment.py
+  - strategies/**
+  - tests/baseline/**
+  - tests/compliance/**
+  - tests/pipeline/**
+  - tests/strategies/**
+  - tests/submission/**
+  - tests/synthetic/**
+  - tests/test_golden_spells.py
+  - tests/tools/**
+  - tests/validation/**
+  - tools/generate_subtitles.py
+  - tools/pre_commit.py
+  - tools/pulse_diagnostics.py
+  - tools/regression_check.py
+  - tools/sweep_hysteresis.py
+  - uv.lock
+  - validation/**
