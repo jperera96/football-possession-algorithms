@@ -45,12 +45,16 @@ window selection, metric floors or regression gates. It MAY be used to check ali
 - **THEN** the static compliance test fails
 
 #### Scenario: Automated sweep
-- **WHEN** a tool iterates over parameter values and scores them against the public ground truth
+- **WHEN** a tool iterates over parameter values or engine versions and scores them against the public ground truth
 - **THEN** the static compliance test fails
 
 #### Scenario: Pipeline sanity check
 - **WHEN** a human runs the official evaluation to confirm that a file is aligned and well-formed
 - **THEN** no selection, threshold or log entry is derived from the result
+
+#### Scenario: Public score falls after a generalisation change
+- **WHEN** a change accepted on external evidence lowers the public-window score
+- **THEN** the change is not reverted for that reason alone
 
 ### Requirement: Full-match labels stay out of Git
 The repository MUST NOT track full-match predicted labels of the provided game, in any encoding,
@@ -63,18 +67,6 @@ apart from the organiser-supplied baseline files.
 #### Scenario: Local comparison
 - **WHEN** a developer compares two local runs
 - **THEN** the compared artifacts live in an ignored local directory
-
-### Requirement: Rule provenance register
-Each inference rule and parameter SHALL have a register entry stating its physical or statistical
-rationale, its origin, its class and its evidence status.
-
-#### Scenario: Rule without entry
-- **WHEN** a rule identifier used by the engine has no register entry
-- **THEN** the compliance test fails
-
-#### Scenario: Class-B rule at freeze
-- **WHEN** a rule whose thresholds were derived from cases observed on the provided game has no supporting external evidence at algorithm freeze
-- **THEN** its retention requires a recorded maintainer decision consistent with any organiser answer
 
 ### Requirement: Compliance questions are escalated and logged
 Doubts about past or planned practice SHALL be recorded in a compliance log and raised with

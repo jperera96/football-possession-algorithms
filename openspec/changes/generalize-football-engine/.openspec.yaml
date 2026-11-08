@@ -1,6 +1,6 @@
 schema: pulse-governed
-created: 2026-11-05
-goal: Specify PULSE, a compliant, reproducible evolution of the possession engine
+created: 2026-11-08
+goal: Make the possession engine generalise beyond the public window and measure it on other games
 affected_areas:
   - .agents/skills/possession-pipeline/**
   - .github/workflows/ci.yml
@@ -8,7 +8,7 @@ affected_areas:
   - APPROACH.md
   - DEVELOPING.md
   - config/**
-  - docs/pulse/**
+  - docs/engine/**
   - experiments/README.md
   - games.py
   - make_submission.py
@@ -19,16 +19,15 @@ affected_areas:
   - strategies/**
   - tests/baseline/**
   - tests/compliance/**
-  - tests/pipeline/**
-  - tests/strategies/**
+  - tests/engine/**
   - tests/submission/**
   - tests/synthetic/**
   - tests/test_golden_spells.py
-  - tests/tools/**
   - tests/validation/**
+  - tools/agent_eval.py
   - tools/generate_subtitles.py
+  - tools/match_audit.py
   - tools/pre_commit.py
-  - tools/pulse_diagnostics.py
   - tools/regression_check.py
   - tools/sweep_hysteresis.py
   - uv.lock
