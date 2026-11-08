@@ -29,7 +29,7 @@ context: |
 rules:
   proposal:
     - Fill every template section; "None" requires a reason.
-    - State `Type: algorithm` for anything that can change submitted labels and answer the full Algorithm Review.
+    - "State `Type: algorithm` for anything that can change submitted labels and answer the full Algorithm Review."
     - Never cite public 5-minute ground-truth scores as evidence of full-match performance.
     - Set affected_areas in .openspec.yaml to the narrowest path globs the implementation needs.
   specs:
