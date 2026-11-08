@@ -1,0 +1,34 @@
+schema: pulse-governed
+created: 2026-11-08
+goal: Make the possession engine generalise beyond the public window and measure it on other games
+affected_areas:
+  - .agents/skills/possession-pipeline/**
+  - .github/workflows/ci.yml
+  - AGENTS.md
+  - APPROACH.md
+  - DEVELOPING.md
+  - config/**
+  - docs/engine/**
+  - experiments/README.md
+  - games.py
+  - make_submission.py
+  - pipeline/**
+  - pyproject.toml
+  - requirements.txt
+  - run_experiment.py
+  - strategies/**
+  - tests/baseline/**
+  - tests/compliance/**
+  - tests/engine/**
+  - tests/submission/**
+  - tests/synthetic/**
+  - tests/test_golden_spells.py
+  - tests/validation/**
+  - tools/agent_eval.py
+  - tools/generate_subtitles.py
+  - tools/match_audit.py
+  - tools/pre_commit.py
+  - tools/regression_check.py
+  - tools/sweep_hysteresis.py
+  - uv.lock
+  - validation/**
