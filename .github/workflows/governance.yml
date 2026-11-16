@@ -1,0 +1,113 @@
+name: Governance / OpenSpec
+
+# Enforces "no approved specification, no implementation" (docs/OPEN_SPEC_WORKFLOW.md).
+# Uses `pull_request` (never `pull_request_target`): PR code runs with a read-only token and no
+# secrets. The PR description is passed through an environment variable, never interpolated
+# into a shell command. The policy itself runs from the BASE revision's copy of the checker, so
+# a PR cannot weaken the gate that judges it.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: governance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPENSPEC_VERSION: "1.13.1"
+  OPENSPEC_TELEMETRY: "0"
+  DO_NOT_TRACK: "1"
+
+jobs:
+  openspec-governance:
+    # Stable name: configure it as a required status check on `main`.
+    name: openspec-governance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (full history, no persisted credentials)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js 20.19
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20.19.0"
+
+      - name: Install pinned tools (OpenSpec CLI, Ruff)
+        run: |
+          npm install --global --no-fund --no-audit "@fission-ai/openspec@${OPENSPEC_VERSION}"
+          python -m pip install --disable-pip-version-check "ruff==0.6.9"
+          openspec --version
+
+      - name: Ensure no gated data is tracked
+        run: |
+          unwanted="$(git ls-files data | grep -v '^data/README.md$' || true)"
+          if [ -n "$unwanted" ]; then
+            echo "::error::Gated data files are tracked:"; echo "$unwanted"; exit 1
+          fi
+
+      - name: Select trusted checker from the base revision
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          trusted="$RUNNER_TEMP/trusted-governance"
+          mkdir -p "$trusted"
+          if git cat-file -e "${BASE_SHA}:tools/governance/check_openspec.py" 2>/dev/null; then
+            git show "${BASE_SHA}:tools/governance/check_openspec.py" > "$trusted/check_openspec.py"
+            echo "Using the checker from base ${BASE_SHA}"
+          else
+            # Bootstrap only: the base has no governance yet, so the PR's own checker runs in
+            # bootstrap mode and fails unless the base truly lacks governance.
+            cp tools/governance/check_openspec.py "$trusted/check_openspec.py"
+            echo "::warning::Base has no governance checker: bootstrap mode, human review is the gate."
+          fi
+          echo "CHECKER=$trusted/check_openspec.py" >> "$GITHUB_ENV"
+
+      - name: Classify PR and enforce approved specification
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python "$CHECKER" \
+            --base "$BASE_SHA" \
+            --head HEAD \
+            --base-ref-name "$BASE_REF" \
+            --protected-branch main \
+            --pr-body-env PR_BODY \
+            --run-openspec
+
+      - name: Audit all OpenSpec changes on main
+        if: github.event_name == 'push'
+        run: python tools/governance/check_openspec.py --mode audit --rev HEAD --run-openspec
+
+      - name: Validate custom schema and all specs/changes
+        run: |
+          openspec schema validate pulse-governed
+          openspec validate --all --strict --no-interactive
+
+      - name: Governance tests (synthetic git repositories only)
+        run: python -m unittest discover -s tests/governance -v
+
+      - name: Static checks for governance code
+        run: |
+          ruff check --line-length 130 tools/governance tests/governance
+          python -m compileall -q tools/governance tests/governance

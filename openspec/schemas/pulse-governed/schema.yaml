@@ -1,0 +1,128 @@
+name: pulse-governed
+version: 1
+description: >-
+  Governed fork of spec-driven for PULSE: proposal → specs → design → tasks, with design
+  mandatory for every change, algorithm review questions, task traceability and a
+  verification.md evidence file. Planning is approved in a specification PR before any
+  implementation starts (see docs/OPEN_SPEC_WORKFLOW.md).
+artifacts:
+  - id: proposal
+    generates: proposal.md
+    description: Why the change is needed, what it changes, and why this approach
+    template: proposal.md
+    instruction: |
+      Create the proposal. Fill EVERY section of the template; the governance checker
+      (tools/governance/check_openspec.py) rejects missing, empty or placeholder sections.
+      Write "None" plus a reason rather than leaving a section blank.
+
+      - Change Type: exactly one line `Type: algorithm` or `Type: non-algorithm`.
+        Anything that can change the submitted labels (strategies/, pipeline/,
+        run_experiment.py, games.py, parameters, caches feeding them) is `algorithm`.
+      - Algorithm changes MUST also fill `## Algorithm Review` with every `###` question.
+        Evidence must come from somewhere other than the competition match: physics,
+        published literature, other games, synthetic tests. Scores on the public 5-minute
+        ground truth are NOT evidence for selecting or tuning anything.
+      - Capabilities: list new and modified capability paths. Research existing specs first
+        with `openspec list --specs` and `openspec show "<spec-id>" --type spec`. A change
+        with no behavioural change sets `skip_specs: true` in `.openspec.yaml` instead of
+        inventing requirements.
+      - Also set `affected_areas` in the change's `.openspec.yaml`: the path globs the
+        implementation may touch (e.g. `pipeline/dead_ball.py`, `tests/pipeline/**`). Every
+        pattern must start with a literal directory or file. Governance and official files
+        (openspec/, .github/, AGENTS.md, CLAUDE.md, .claude/, .agents/, tools/governance/,
+        tests/governance/, evaluation scorer, starter/baseline.py, evaluation/gt/) are in
+        scope only through a pattern rooted in that path.
+
+      Writing a proposal does NOT authorise implementation. Stop after planning; the
+      specification PR must be reviewed and merged by a human first.
+    requires: []
+
+  - id: specs
+    generates: "specs/**/*.md"
+    description: Delta specifications of observable behaviour
+    template: spec.md
+    instruction: |
+      Create one delta spec per capability listed in the proposal, at
+      `specs/<capability-path>/spec.md`. Specs describe observable behaviour and data
+      contracts, not implementation: no class names, libraries or step-by-step plans.
+
+      - Use `## ADDED|MODIFIED|REMOVED|RENAMED Requirements`.
+      - Each requirement: `### Requirement: <name>` with a SHALL or MUST statement
+        (MUST NOT for prohibited behaviour) and at least one `#### Scenario:` (exactly four
+        hashes) with **WHEN** / **THEN** bullets. Cover edge cases, failure behaviour and
+        data contracts as their own scenarios.
+      - MODIFIED requirements copy the whole existing block from `openspec/specs/` and edit it.
+      - REMOVED requirements need **Reason** and **Migration**.
+      - New capabilities start with `## Purpose` (50+ characters).
+      - Never describe unimplemented behaviour as existing. Never encode frame numbers or
+        facts about the competition match as requirements.
+      - Skip this artifact only when `.openspec.yaml` has `skip_specs: true` (pure refactor,
+        tooling or docs). A spec-free change still needs proposal, design, tasks, approval
+        and verification.
+    requires:
+      - proposal
+
+  - id: design
+    generates: design.md
+    description: Technical design (mandatory for every change, concise for small ones)
+    template: design.md
+    instruction: |
+      Create design.md for EVERY change. Small changes may answer each section in one or two
+      lines, but no section may be omitted or left as a placeholder.
+
+      Reference proposal.md for motivation and the specs for requirements instead of
+      restating them. Explain decisions with the alternatives considered. Add Mermaid
+      diagrams for cross-module changes when they clarify the data flow.
+
+      For algorithm changes, fill `## Possession Engine Considerations` with every `###`
+      question (temporal alignment, missing observations, geometry, uncertainty, H/A/D/X
+      semantics, segmentation, Smart Tagging, overfitting, determinism).
+
+      Security and Confidentiality must state how the change avoids exposing private
+      competition data (videos, ATD, homography, Smart Tagging, derived caches or
+      predictions) to cloud-hosted models, logs or the repository.
+
+      Unresolved questions that would change specs, approach or tasks must be resolved with
+      the maintainers before the specification PR, not deferred.
+    requires:
+      - proposal
+
+  - id: tasks
+    generates: tasks.md
+    description: Ordered, verifiable implementation tasks traced to requirements
+    template: tasks.md
+    instruction: |
+      Break implementation into small, ordered tasks. Every task is a checkbox line
+      `- [ ] <group>.<n> <description>` followed by these indented bullets, all required:
+
+        - **Depends on:** task ids or `none`
+        - **Files:** paths, all inside the change's affected_areas
+        - **Requirements:** requirement name(s) from this change's specs (or `none - skip_specs`)
+        - **Verification:** the test or command that proves it
+        - **Done when:** the observable completion criterion
+
+      Only `- [ ]` and `- [x]` are valid markers. Tasks are checked during implementation
+      only after their verification has actually run and passed; writing code is not done.
+    requires:
+      - specs
+      - design
+
+apply:
+  requires: [tasks]
+  tracks: tasks.md
+  instruction: |
+    Before writing any code, confirm the change is APPROVED: its planning artifacts must
+    already be on the protected `main` branch (`git ls-tree origin/main openspec/changes/<id>/`).
+    If they are not, stop: implementation is not authorised.
+
+    Then work through tasks in order, touching only files in `affected_areas`. After each
+    task, run its Verification and check it only if it passed. Record evidence in
+    `verification.md` (copy openspec/schemas/pulse-governed/templates/verification.md):
+    commands actually run, their real results, requirement coverage, lint, `openspec
+    validate --strict`, determinism checks, deviations, limitations and residual risks.
+    Never invent results and never claim checks on private data that were not run locally.
+
+    If implementation reveals that the approved behaviour, design or scope is wrong, STOP,
+    document the finding, and propose the amendment in a new specification PR. Minor
+    details inside the approved behaviour, design and affected_areas may be recorded under
+    Deviations without re-approval.

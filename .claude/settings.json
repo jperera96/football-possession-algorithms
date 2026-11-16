@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./data/**)",
+      "Read(./**/*.mp4)",
+      "Read(./**/*.srt)",
+      "Read(./**/*.gzip)",
+      "Read(./**/*.pl3container)",
+      "Read(./**/*_possession_gt.csv)",
+      "Read(./**/*_possession_gt_meta.json)",
+      "Read(./**/*_possession_gt_reference.csv)",
+      "Read(./evaluation/results/*.csv)",
+      "Read(./evaluation/reports/**)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+schema: pulse-governed
+created: 2026-10-30
+goal: Make every future change specification-first, human-approved and verified by CI.
+affected_areas:
+  - openspec/**
+  - tools/governance/**
+  - tests/governance/**
+  - .github/workflows/governance.yml
+  - .github/pull_request_template.md
+  - .github/CODEOWNERS
+  - .claude/**
+  - .agents/skills/openspec-*/**
+  - .agents/skills/.openspec-target
+  - AGENTS.md
+  - CLAUDE.md
+  - docs/OPEN_SPEC_WORKFLOW.md
+  - DEVELOPING.md
